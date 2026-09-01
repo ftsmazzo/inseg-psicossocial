@@ -556,7 +556,19 @@ def revalidate_job_lines(db: Session, job: Job) -> list[str]:
     return affected
 
 
-def generate_docx(db: Session, job: Job) -> Path:
+def original_docx_path(job_id: int) -> Path:
+    return job_dir(job_id) / "out" / f"PGR-{job_id}-original.docx"
+
+
+def generate_docx(
+    db: Session,
+    job: Job,
+    *,
+    include_narratives: bool = True,
+    include_cronogram: bool = True,
+    output_suffix: str = "psicossocial",
+    update_job_output: bool = True,
+) -> Path:
     from motor.models import LineStatus, ProposedLine
     from motor.write_pgr import apply_lines_to_pgr
 
@@ -569,7 +581,6 @@ def generate_docx(db: Session, job: Job) -> Path:
         .all()
     )
     if not lines_db:
-        # fallback: all non-discarded
         lines_db = (
             db.query(JobLine)
             .filter(JobLine.job_id == job.id, JobLine.discarded.is_(False))
@@ -613,10 +624,30 @@ def generate_docx(db: Session, job: Job) -> Path:
             )
         )
 
-    out_path = job_dir(job.id) / "out" / f"PGR-{job.id}-psicossocial.docx"
-    apply_lines_to_pgr(job.pgr_path, out_path, proposed, only_accepted=False)
-    job.output_docx_path = str(out_path)
-    job.status = JobStatus.ready
-    db.add(job)
-    db.commit()
+    out_path = job_dir(job.id) / "out" / f"PGR-{job.id}-{output_suffix}.docx"
+    apply_lines_to_pgr(
+        job.pgr_path,
+        out_path,
+        proposed,
+        only_accepted=False,
+        include_narratives=include_narratives,
+        include_cronogram=include_cronogram,
+    )
+    if update_job_output:
+        job.output_docx_path = str(out_path)
+        job.status = JobStatus.ready
+        db.add(job)
+        db.commit()
     return out_path
+
+
+def generate_docx_original(db: Session, job: Job) -> Path:
+    """Só linhas APRHO — sem narrativas nem cronograma (PGR original + tabelas psico)."""
+    return generate_docx(
+        db,
+        job,
+        include_narratives=False,
+        include_cronogram=False,
+        output_suffix="original",
+        update_job_output=False,
+    )

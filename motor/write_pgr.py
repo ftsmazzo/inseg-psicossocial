@@ -33,6 +33,8 @@ def apply_lines_to_pgr(
     lines: list[ProposedLine],
     *,
     only_accepted: bool = True,
+    include_narratives: bool = True,
+    include_cronogram: bool = True,
 ) -> dict:
     """Update/insert psychosocial APRHO rows. Returns stats."""
     source_docx = Path(source_docx)
@@ -76,8 +78,13 @@ def apply_lines_to_pgr(
             _write_row(new_row, ln)
             applied += 1
 
-    narrative = apply_psicossocial_narratives(doc)
-    cronogram = apply_psicossocial_cronogram(doc, lines)
+    narrative: dict[str, str | bool] = {"status": "skipped"}
+    if include_narratives:
+        narrative = apply_psicossocial_narratives(doc)
+
+    cronogram: dict = {"status": "skipped", "rows_added": 0, "groups": 0}
+    if include_cronogram:
+        cronogram = apply_psicossocial_cronogram(doc, lines)
 
     output_docx.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(output_docx))

@@ -15,7 +15,9 @@ from app.services import (
     chat_job,
     delete_job,
     generate_docx,
+    generate_docx_original,
     job_dir,
+    original_docx_path,
     process_job_background,
     read_progress,
     recalculate_potencial,
@@ -322,7 +324,22 @@ def generate(
         path = generate_docx(db, job)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "path": str(path)}
+    return {"ok": True, "path": str(path), "variant": "full"}
+
+
+@router.post("/{job_id}/generate-original")
+def generate_original(
+    job_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """Gera PGR só com linhas APRHO — sem narrativas nem cronograma."""
+    job = db.query(Job).filter(Job.id == job_id, Job.owner_id == user.id).first()
+    if not job:
+        raise HTTPException(404, "Job não encontrado")
+    try:
+        path = generate_docx_original(db, job)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "path": str(path), "variant": "original"}
 
 
 @router.get("/{job_id}/download")
@@ -335,6 +352,23 @@ def download(
     path = Path(job.output_docx_path)
     if not path.exists():
         raise HTTPException(404, "Arquivo ausente no disco")
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=path.name,
+    )
+
+
+@router.get("/{job_id}/download-original")
+def download_original(
+    job_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    job = db.query(Job).filter(Job.id == job_id, Job.owner_id == user.id).first()
+    if not job:
+        raise HTTPException(404, "Job não encontrado")
+    path = original_docx_path(job_id)
+    if not path.exists():
+        raise HTTPException(404, "Arquivo original não gerado — use POST /generate-original")
     return FileResponse(
         path,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
