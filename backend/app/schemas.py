@@ -42,6 +42,7 @@ class JobOut(BaseModel):
     lines_count: int = 0
     accepted_count: int = 0
     progress: dict | None = None
+    processing_stale: bool = False
 
     class Config:
         from_attributes = True

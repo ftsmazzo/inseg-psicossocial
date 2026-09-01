@@ -21,6 +21,7 @@ from app.services import (
     save_approved_snippet,
     save_upload,
     write_progress,
+    _processing_stale,
 )
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
@@ -51,6 +52,7 @@ def _job_out(job: Job, db: Session) -> JobOut:
         lines_count=len(lines),
         accepted_count=sum(1 for l in lines if l.accepted and not l.discarded),
         progress=prog,
+        processing_stale=_processing_stale(job),
     )
 
 
@@ -84,7 +86,7 @@ def remove_job(
     job = db.query(Job).filter(Job.id == job_id, Job.owner_id == user.id).first()
     if not job:
         raise HTTPException(404, "Job não encontrado")
-    if job.status == JobStatus.processing:
+    if job.status == JobStatus.processing and not _processing_stale(job):
         raise HTTPException(
             409,
             "Job em processamento — aguarde terminar antes de excluir.",
@@ -142,8 +144,14 @@ def run_process(
         raise HTTPException(404, "Job não encontrado")
     if not job.campanha_path or not job.pgr_path:
         raise HTTPException(400, "Campanha PDF e PGR DOCX são obrigatórios")
-    if job.status == JobStatus.processing:
+    if job.status == JobStatus.processing and not _processing_stale(job):
         return _job_out(job, db)
+
+    saved = db.query(JobLine).filter(JobLine.job_id == job.id).count()
+    if job.status == JobStatus.processing and _processing_stale(job):
+        job.notes_json = list(job.notes_json or []) + [
+            f"Retomando após parada em {saved} GHE(s) — worker anterior expirou."
+        ]
 
     job.status = JobStatus.processing
     job.error_message = None

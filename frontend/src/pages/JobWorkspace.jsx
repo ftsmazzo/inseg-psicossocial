@@ -431,8 +431,10 @@ export default function JobWorkspace() {
   const canUpload = job.status === "draft" || job.status === "failed";
 
   const canReprocess =
-
-    job.status === "review" || job.status === "ready" || job.status === "failed";
+    job.status === "review" ||
+    job.status === "ready" ||
+    job.status === "failed" ||
+    (job.status === "processing" && job.processing_stale);
 
   const showProgress = job.status === "processing" || (busy && progress);
 
@@ -514,7 +516,9 @@ export default function JobWorkspace() {
 
                   <i className="fas fa-redo mr-1" />
 
-                  Reprocessar
+                  {job.status === "processing" && job.processing_stale
+                    ? "Continuar processamento"
+                    : "Reprocessar"}
 
                 </button>
 

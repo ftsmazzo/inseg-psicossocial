@@ -186,18 +186,35 @@ def read_progress(job_id: int) -> dict | None:
 
 def process_job_background(job_id: int) -> None:
     """Roda fora do request HTTP — a UI pode pollar progresso."""
+    import logging
+
     from app.db import SessionLocal
 
+    log = logging.getLogger("inseg.process")
     db = SessionLocal()
     try:
         job = db.query(Job).filter(Job.id == job_id).first()
         if not job:
             return
         process_job(db, job)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        log.exception("process_job_background falhou job_id=%s: %s", job_id, exc)
     finally:
         db.close()
+
+
+def _processing_stale(job: Job, *, minutes: int = 4) -> bool:
+    """True se processing parou de atualizar (worker morto ou travado)."""
+    from datetime import datetime, timedelta
+
+    if job.status != JobStatus.processing:
+        return False
+    updated = job.updated_at
+    if not updated:
+        return True
+    if updated.tzinfo is not None:
+        updated = updated.replace(tzinfo=None)
+    return datetime.utcnow() - updated > timedelta(minutes=minutes)
 
 
 def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
