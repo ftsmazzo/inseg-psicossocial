@@ -1,0 +1,15 @@
+.git
+.env
+backend/.env
+backend/.venv
+backend/data
+backend/psicossocial.db
+frontend/node_modules
+out
+scripts/analysis_out
+__pycache__
+*.pyc
+.DS_Store
+psicossocial.db
+modelos/*.pdf
+modelos/*.docx
