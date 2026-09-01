@@ -201,9 +201,36 @@ def process_job_background(job_id: int) -> None:
         log.exception("process_job_background falhou job_id=%s: %s", job_id, exc)
     finally:
         db.close()
+        db2 = SessionLocal()
+        try:
+            job = db2.query(Job).filter(Job.id == job_id).first()
+            if not job or job.status != JobStatus.processing:
+                return
+            saved = db2.query(JobLine).filter(JobLine.job_id == job_id).count()
+            job.status = JobStatus.review if saved else JobStatus.failed
+            job.error_message = (
+                f"Processamento interrompido — {saved} GHE(s) salvos. "
+                "Use Continuar processamento para retomar."
+            )
+            notes = list(job.notes_json or [])
+            notes.append(job.error_message)
+            job.notes_json = notes
+            db2.add(job)
+            db2.commit()
+            write_progress(
+                job_id,
+                done=saved,
+                total=max(saved, 1),
+                message=f"Interrompido — {saved} GHE(s) salvos",
+                phase="stopped",
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.exception("process_job_background cleanup job_id=%s: %s", job_id, exc)
+        finally:
+            db2.close()
 
 
-def _processing_stale(job: Job, *, minutes: int = 4) -> bool:
+def _processing_stale(job: Job, *, minutes: int = 2) -> bool:
     """True se processing parou de atualizar (worker morto ou travado)."""
     from datetime import datetime, timedelta
 
@@ -264,6 +291,22 @@ def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
         phase="parse",
     )
 
+    def on_progress(ghe_num: str, ghe_nome: str, done: int, total: int) -> None:
+        job.notes_json = [
+            f"Processando GHE {ghe_num} ({done + 1}/{total})…",
+            f"resume_skip={len(skip)}",
+        ]
+        db.add(job)
+        db.commit()
+        write_progress(
+            job.id,
+            done=done,
+            total=total,
+            ghe=f"{ghe_num} · {ghe_nome[:48]}",
+            message=f"Processando GHE {ghe_num} ({done + 1}/{total})…",
+            phase="filling",
+        )
+
     def on_line(line: ProposedLine, done: int, total: int) -> None:
         payload = line.to_dict()
         _upsert_job_line(db, job.id, payload)
@@ -297,6 +340,7 @@ def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
             approved_snippets=snippets,
             skip_ghe_numeros=skip or None,
             on_line=on_line,
+            on_progress=on_progress,
         )
         proposal = json.loads(Path(result["proposal_json"]).read_text(encoding="utf-8"))
 

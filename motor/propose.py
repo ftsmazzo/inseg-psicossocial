@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import gc
+import logging
 import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 from motor.agent_tools import AgentJobContext
 from motor.dossier import JobDossiers, build_dossiers
@@ -26,8 +29,32 @@ from motor.dossier_insights import build_motor_rationale, compute_prioridade_aca
 
 
 MIN_ANONIMATO = 5
+GHE_ORCHESTRATE_TIMEOUT = 130
+
+logger = logging.getLogger(__name__)
 
 OnLineCb = Callable[[ProposedLine, int, int], None]
+OnProgressCb = Callable[[str, str, int, int], None]
+
+
+def _orchestrate_with_timeout(
+    ctx: AgentJobContext,
+    dossier,
+    *,
+    draft: dict[str, str],
+    timeout: int = GHE_ORCHESTRATE_TIMEOUT,
+) -> tuple[dict[str, str], str]:
+    """Evita travar o job inteiro se o LLM não responder."""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        fut = pool.submit(orchestrate_ghe, ctx, dossier, draft=draft)
+        try:
+            return fut.result(timeout=timeout)
+        except FuturesTimeout:
+            logger.warning("GHE %s: timeout LLM (%ss)", dossier.ghe_numero, timeout)
+            return draft, "orchestrator:timeout"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("GHE %s: erro no orquestrador", dossier.ghe_numero)
+            return draft, f"orchestrator:error ({str(exc)[:80]})"
 
 
 def propose(
@@ -37,6 +64,7 @@ def propose(
     approved_snippets: list[dict] | None = None,
     skip_ghe_numeros: set[str] | None = None,
     on_line: OnLineCb | None = None,
+    on_progress: OnProgressCb | None = None,
 ) -> tuple[ProposalBundle, JobDossiers]:
     """Uma linha por GHE. on_line após cada GHE (checkpoint). skip = resume."""
     notes: list[str] = []
@@ -62,6 +90,7 @@ def propose(
     matched_cargo_keys: set[str] = set()
     ghe_by_num = {g.numero: g for g in pgr.ghes}
     total = len(dossiers.dossiers)
+    processed = 0
 
     for d in dossiers.dossiers:
         ghe = ghe_by_num.get(d.ghe_numero)
@@ -76,6 +105,15 @@ def propose(
         if ghe.numero in skip or d.ghe_numero in skip:
             skipped_resume += 1
             continue
+
+        processed += 1
+        if on_progress is not None:
+            on_progress(
+                ghe.numero,
+                ghe.nome,
+                len(lines) + skipped_resume,
+                total,
+            )
 
         for sl in d.ssos_slices:
             if sl.get("cargo"):
@@ -98,7 +136,7 @@ def propose(
             evidencias.append(f"[{q.get('dimensao')} {q.get('pct')}%] {q.get('text')}")
 
         draft = draft_from_dossier(d)
-        texts, llm_status = orchestrate_ghe(ctx, d, draft=draft)
+        texts, llm_status = _orchestrate_with_timeout(ctx, d, draft=draft)
 
         if llm_status == "orchestrator:ok":
             orch_ok += 1
@@ -265,6 +303,9 @@ def propose(
         lines.append(line)
         if on_line is not None:
             on_line(line, len(lines) + skipped_resume, total)
+
+        if processed % 10 == 0:
+            gc.collect()
 
     for sl in campaign.por_cargo:
         key = f"{sl.setor}|{sl.cargo}"

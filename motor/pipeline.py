@@ -19,6 +19,7 @@ def run_pipeline(
     approved_snippets: list | None = None,
     skip_ghe_numeros: set[str] | None = None,
     on_line: Callable | None = None,
+    on_progress: Callable | None = None,
 ) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -70,6 +71,7 @@ def run_pipeline(
         approved_snippets=approved_snippets,
         skip_ghe_numeros=skip_ghe_numeros,
         on_line=on_line,
+        on_progress=on_progress,
     )
 
     proposal_path = out_dir / "proposal.json"
