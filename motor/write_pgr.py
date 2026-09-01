@@ -9,6 +9,8 @@ from docx.table import Table, _Row
 
 from motor.llm import is_robotic_danos
 from motor.models import ProposedLine
+from motor.pgr_cronograma import apply_psicossocial_cronogram
+from motor.pgr_narrative import apply_psicossocial_narratives
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +95,18 @@ def apply_lines_to_pgr(
             _write_row(new_row, ln)
             applied += 1
 
+    narrative = apply_psicossocial_narratives(doc)
+    cronogram = apply_psicossocial_cronogram(doc, lines)
+
     output_docx.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(output_docx))
-    return {"applied": applied, "skipped": skipped, "output": str(output_docx)}
+    return {
+        "applied": applied,
+        "skipped": skipped,
+        "output": str(output_docx),
+        "narrative": narrative,
+        "cronogram": cronogram,
+    }
 
 
 def _find_psico_index(table: Table) -> int | None:
