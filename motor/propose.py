@@ -45,16 +45,18 @@ def _orchestrate_with_timeout(
     timeout: int = GHE_ORCHESTRATE_TIMEOUT,
 ) -> tuple[dict[str, str], str]:
     """Evita travar o job inteiro se o LLM não responder."""
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        fut = pool.submit(orchestrate_ghe, ctx, dossier, draft=draft)
-        try:
-            return fut.result(timeout=timeout)
-        except FuturesTimeout:
-            logger.warning("GHE %s: timeout LLM (%ss)", dossier.ghe_numero, timeout)
-            return draft, "orchestrator:timeout"
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("GHE %s: erro no orquestrador", dossier.ghe_numero)
-            return draft, f"orchestrator:error ({str(exc)[:80]})"
+    pool = ThreadPoolExecutor(max_workers=1)
+    fut = pool.submit(orchestrate_ghe, ctx, dossier, draft=draft)
+    try:
+        return fut.result(timeout=timeout)
+    except FuturesTimeout:
+        logger.warning("GHE %s: timeout LLM (%ss)", dossier.ghe_numero, timeout)
+        return draft, "orchestrator:timeout"
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("GHE %s: erro no orquestrador", dossier.ghe_numero)
+        return draft, f"orchestrator:error ({str(exc)[:80]})"
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def propose(
@@ -135,8 +137,15 @@ def propose(
         for q in d.perguntas_criticas[:5]:
             evidencias.append(f"[{q.get('dimensao')} {q.get('pct')}%] {q.get('text')}")
 
-        draft = draft_from_dossier(d)
-        texts, llm_status = _orchestrate_with_timeout(ctx, d, draft=draft)
+        try:
+            draft = draft_from_dossier(d)
+            texts, llm_status = _orchestrate_with_timeout(ctx, d, draft=draft)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("GHE %s: falha inesperada — motor local", ghe.numero)
+            draft = draft_from_dossier(d)
+            texts = draft
+            llm_status = f"orchestrator:exception ({str(exc)[:80]})"
+            notes.append(f"GHE {ghe.numero}: exceção — {exc}")
 
         if llm_status == "orchestrator:ok":
             orch_ok += 1

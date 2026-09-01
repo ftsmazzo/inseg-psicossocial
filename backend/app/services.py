@@ -206,6 +206,8 @@ def process_job_background(job_id: int) -> None:
             job = db2.query(Job).filter(Job.id == job_id).first()
             if not job or job.status != JobStatus.processing:
                 return
+            if not _processing_stale(job, minutes=1):
+                return
             saved = db2.query(JobLine).filter(JobLine.job_id == job_id).count()
             job.status = JobStatus.review if saved else JobStatus.failed
             job.error_message = (
@@ -382,7 +384,7 @@ def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
         )
         db.refresh(job)
         return job
-    except Exception as exc:  # noqa: BLE001
+    except BaseException as exc:  # noqa: BLE001
         saved = db.query(JobLine).filter(JobLine.job_id == job.id).count()
         job.status = JobStatus.failed if saved == 0 else JobStatus.review
         job.error_message = (
@@ -393,13 +395,17 @@ def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
         job.notes_json = notes
         db.add(job)
         db.commit()
+        prog = read_progress(job.id) or {}
+        total = max(int(prog.get("total") or 0), saved, 1)
         write_progress(
             job.id,
             done=saved,
-            total=max(saved, 1),
-            message=f"Interrompido — {saved} GHE(s) salvos",
+            total=total,
+            message=f"Interrompido — {saved}/{total} GHE(s) salvos",
             phase="stopped",
         )
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            raise
         raise
 
 
