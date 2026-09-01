@@ -9,7 +9,12 @@ from typing import Literal
 from docx import Document
 from docx.text.paragraph import Paragraph
 
-from motor.pgr_docx_utils import clone_paragraph_after, norm_text, paragraph_has_numpr
+from motor.pgr_docx_utils import (
+    append_to_paragraph,
+    insert_paragraph_after,
+    norm_text,
+    paragraph_has_numpr,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,17 +53,34 @@ def _find_paragraph(doc: Document, *anchor_substrings: str) -> Paragraph | None:
     return None
 
 
-def _append_to_paragraph(paragraph: Paragraph, suffix: str) -> None:
-    base = paragraph.text.rstrip()
-    if base.endswith("."):
-        base = base[:-1].rstrip()
-    new_text = f"{base}{suffix}"
-    if paragraph.runs:
-        paragraph.runs[0].text = new_text
-        for run in paragraph.runs[1:]:
-            run.text = ""
-    else:
-        paragraph.text = new_text
+def _spacing_reference(doc: Document, after: Paragraph) -> Paragraph:
+    """Parágrafo cujo espaçamento copiar — só vizinho da mesma seção/lista."""
+    idx = _paragraph_index(doc, after)
+    if idx is None:
+        return after
+    after_style = after.style.name if after.style else ""
+    after_numpr = paragraph_has_numpr(after)
+    if idx + 1 < len(doc.paragraphs):
+        nxt = doc.paragraphs[idx + 1]
+        if nxt.text.strip():
+            nxt_style = nxt.style.name if nxt.style else ""
+            nxt_numpr = paragraph_has_numpr(nxt)
+            if nxt_style == after_style or (after_numpr and nxt_numpr):
+                return nxt
+    return after
+
+
+def _find_neighbor_body_text(doc: Document, anchor_idx: int) -> Paragraph | None:
+    """Parágrafo Body Text mais próximo — fallback para intro descritiva."""
+    for i in range(anchor_idx, max(anchor_idx - 30, -1), -1):
+        para = doc.paragraphs[i]
+        if para.text.strip() and (para.style.name if para.style else "") == "Body Text":
+            return para
+    for i in range(anchor_idx, min(anchor_idx + 15, len(doc.paragraphs))):
+        para = doc.paragraphs[i]
+        if para.text.strip() and (para.style.name if para.style else "") == "Body Text":
+            return para
+    return None
 
 
 def _find_last_references_anchor(doc: Document) -> Paragraph | None:
@@ -218,12 +240,27 @@ def _insert_plano_emergencia_psico(doc: Document, anchor: Paragraph, lines: tupl
         return
     insert_after = _last_electrical_bullet_before_evacuacao(doc, anchor)
     bullet_tpl = _first_numbered_bullet_after(doc, anchor)
-    intro_tpl = anchor
+    anchor_idx = _paragraph_index(doc, anchor) or 0
+    intro_tpl = _find_neighbor_body_text(doc, anchor_idx) or anchor
 
     intro, *bullets = list(lines)
-    current = clone_paragraph_after(intro_tpl, intro, insert_after)
+    current = insert_paragraph_after(
+        intro_tpl,
+        intro,
+        insert_after,
+        keep_numpr=False,
+        spacing_from=insert_after,
+    )
+    bullet_spacing = insert_after
     for item in bullets:
-        current = clone_paragraph_after(bullet_tpl, item, current)
+        current = insert_paragraph_after(
+            bullet_tpl,
+            item,
+            current,
+            keep_numpr=True,
+            spacing_from=bullet_spacing,
+        )
+        bullet_spacing = current
 
 
 def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
@@ -243,7 +280,13 @@ def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
             tpl = _find_paragraph(doc, patch.insert_style_from or "") or anchor
             current = anchor
             for line in patch.insert_lines:
-                current = clone_paragraph_after(tpl, line, current)
+                current = insert_paragraph_after(
+                    tpl,
+                    line,
+                    current,
+                    keep_numpr=paragraph_has_numpr(tpl),
+                    spacing_from=_spacing_reference(doc, anchor),
+                )
             results[patch.patch_id] = "applied"
             continue
 
@@ -258,7 +301,7 @@ def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
             continue
 
         if patch.mode == "append":
-            _append_to_paragraph(anchor, patch.append_suffix)
+            append_to_paragraph(anchor, patch.append_suffix)
             results[patch.patch_id] = "applied"
             continue
 
@@ -274,7 +317,13 @@ def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
                 tpl = src
         current = anchor
         for line in patch.insert_lines:
-            current = clone_paragraph_after(tpl, line, current)
+            current = insert_paragraph_after(
+                tpl,
+                line,
+                current,
+                keep_numpr=paragraph_has_numpr(tpl),
+                spacing_from=_spacing_reference(doc, anchor),
+            )
         results[patch.patch_id] = "applied"
 
     return results
