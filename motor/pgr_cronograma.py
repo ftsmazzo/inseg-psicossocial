@@ -11,16 +11,15 @@ from docx import Document
 from docx.table import Table, _Row
 
 from motor.models import ProposedLine
+from motor.pgr_docx_utils import set_cell_fill, set_cell_text, unique_cells
 
 logger = logging.getLogger(__name__)
 
 _POTENCIAL_EXCLUIDOS = frozenset({"muito baixo", "baixo"})
 _CRONOGRAMA_MARKER = "Medidas psicossociais —"
 _DATA_ROW_RE = re.compile(r"^\d{1,3}$")
+_P_YELLOW = "FFFF00"
 
-_PRIORIDADE_P_COL = {"1": 6, "2": 10, "3": 16, "": 10}
-
-# Duas ações genéricas — evita desconfigurar o cronograma com dezenas de linhas.
 _GENERIC_ACTIONS: tuple[tuple[str, str, str, str], ...] = (
     (
         "2",
@@ -41,22 +40,6 @@ def _norm(text: str) -> str:
     t = unicodedata.normalize("NFKC", text or "")
     t = t.replace("\xa0", " ")
     return re.sub(r"\s+", " ", t).strip().lower()
-
-
-def _set_cell_text(cell, text: str) -> None:
-    text = text or ""
-    if cell.paragraphs:
-        p0 = cell.paragraphs[0]
-        if p0.runs:
-            p0.runs[0].text = text
-            for run in p0.runs[1:]:
-                run.text = ""
-        else:
-            p0.text = text
-        for p in cell.paragraphs[1:]:
-            p._element.getparent().remove(p._element)
-    else:
-        cell.text = text
 
 
 def _clone_row(table: Table, row_index: int) -> _Row:
@@ -101,6 +84,14 @@ def _next_sequence(table: Table) -> int:
         return 1
 
 
+def _find_p_cell_index(row) -> int | None:
+    """Índice da célula com 'P' previsto (modelo Inseg — coluna amarela)."""
+    for idx, cell in unique_cells(row):
+        if cell.text.strip().upper() == "P":
+            return idx
+    return None
+
+
 def _write_cronogram_row(
     row: _Row,
     *,
@@ -108,27 +99,26 @@ def _write_cronogram_row(
     o_que: str,
     por_que: str,
     como: str,
-    prioridade: str,
+    p_cell_index: int | None,
 ) -> None:
-    cells = row.cells
-    if len(cells) < 6:
-        return
+    uniq = unique_cells(row)
+    by_idx = {idx: cell for idx, cell in uniq}
 
-    _set_cell_text(cells[0], f"{seq:02d}")
-    _set_cell_text(cells[1], o_que)
-    _set_cell_text(cells[2], por_que)
-    _set_cell_text(cells[3], "")
-    _set_cell_text(cells[4], como)
-    _set_cell_text(cells[5], "Sem Custo")
+    if 0 in by_idx:
+        set_cell_text(by_idx[0], f"{seq:02d}")
+    if 1 in by_idx:
+        set_cell_text(by_idx[1], o_que)
+    if 2 in by_idx:
+        set_cell_text(by_idx[2], por_que)
+    if 4 in by_idx:
+        set_cell_text(by_idx[4], como)
+    if 5 in by_idx:
+        set_cell_text(by_idx[5], "Sem Custo")
 
-    p_col = _PRIORIDADE_P_COL.get(prioridade, 10)
-    written: set[int] = set()
-    for i in range(6, len(cells)):
-        tc_id = id(cells[i]._tc)
-        if tc_id in written:
-            continue
-        written.add(tc_id)
-        _set_cell_text(cells[i], "P" if i == p_col else "")
+    if p_cell_index is not None and p_cell_index in by_idx:
+        p_cell = by_idx[p_cell_index]
+        set_cell_text(p_cell, "P")
+        set_cell_fill(p_cell, _P_YELLOW)
 
 
 def _cronogram_already_applied(table: Table) -> bool:
@@ -146,7 +136,7 @@ def _has_eligible_lines(lines: list[ProposedLine]) -> bool:
 def apply_psicossocial_cronogram(doc: Document, lines: list[ProposedLine]) -> dict:
     """
     Duas ações genéricas psicossociais quando houver linha com potencial > Baixo.
-    Idempotente se linhas psicossociais já existirem no cronograma.
+    Clona linha-modelo (logo/watermark) e marca P em amarelo.
     """
     table = _find_cronogram_table(doc)
     if table is None:
@@ -163,9 +153,12 @@ def apply_psicossocial_cronogram(doc: Document, lines: list[ProposedLine]) -> di
     if anchor is None:
         anchor = min(5, len(table.rows) - 1)
 
+    template_row = table.rows[anchor]
+    p_cell_index = _find_p_cell_index(template_row)
+
     seq = _next_sequence(table)
     added = 0
-    for prioridade, o_que, por_que, como in _GENERIC_ACTIONS:
+    for _prioridade, o_que, por_que, como in _GENERIC_ACTIONS:
         new_row = _clone_row(table, anchor)
         anchor += 1
         _write_cronogram_row(
@@ -174,7 +167,7 @@ def apply_psicossocial_cronogram(doc: Document, lines: list[ProposedLine]) -> di
             o_que=o_que,
             por_que=por_que,
             como=como,
-            prioridade=prioridade,
+            p_cell_index=p_cell_index,
         )
         seq += 1
         added += 1

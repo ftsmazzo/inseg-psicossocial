@@ -7,38 +7,17 @@ import unicodedata
 from pathlib import Path
 
 from docx import Document
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
 from docx.table import Table, _Row
 
 from motor.llm import is_robotic_danos
 from motor.models import ProposedLine
 from motor.pgr_cronograma import apply_psicossocial_cronogram
+from motor.pgr_docx_utils import set_cell_text, style_psico_aprho_row
 from motor.pgr_narrative import apply_psicossocial_narratives
 
 logger = logging.getLogger(__name__)
 
 _SAFE_DANOS_FALLBACK = "Agravos Ocupacionais SST a Definir — Revisar Manualmente"
-_YELLOW_FILL = "FFFF00"
-
-
-def _set_cell_text(cell, text: str) -> None:
-    """Replace cell text preserving first paragraph style when possible."""
-    text = text or ""
-    if cell.paragraphs:
-        # clear all paras except first
-        p0 = cell.paragraphs[0]
-        if p0.runs:
-            p0.runs[0].text = text
-            for run in p0.runs[1:]:
-                run.text = ""
-        else:
-            p0.text = text
-        # remove extra paragraphs
-        for p in cell.paragraphs[1:]:
-            p._element.getparent().remove(p._element)
-    else:
-        cell.text = text
 
 
 def _clone_row(table: Table, row_index: int) -> _Row:
@@ -62,13 +41,11 @@ def apply_lines_to_pgr(
 
     applied = 0
     skipped = 0
-    # group by table
     by_table: dict[int, list[ProposedLine]] = {}
     for ln in lines:
         if only_accepted and ln.status.value not in {"Definitivo", "Preliminar", "Proposta"}:
             skipped += 1
             continue
-        # Still write Preliminar/Proposta — technician may filter in UI later
         by_table.setdefault(ln.aprho_table_index, []).append(ln)
 
     for t_index, group in by_table.items():
@@ -76,7 +53,6 @@ def apply_lines_to_pgr(
             skipped += len(group)
             continue
         table = doc.tables[t_index]
-        # process update first, then inserts
         updates = [g for g in group if g.action == "update_existing"]
         inserts = [g for g in group if g.action != "update_existing"]
 
@@ -88,19 +64,15 @@ def apply_lines_to_pgr(
             _write_row(table.rows[row_i], ln)
             applied += 1
 
-        # For inserts: clone psico row or last data row
         for ln in inserts:
             anchor = ln.psico_row_index
-            if anchor is None:
-                anchor = _find_insert_anchor(table)
-            elif anchor >= len(table.rows):
+            if anchor is None or anchor >= len(table.rows):
                 anchor = _find_insert_anchor(table)
             else:
                 cat = _row_category(table.rows[anchor])
                 if _is_acidente_or_mecanico(cat):
                     anchor = _find_insert_anchor(table)
             new_row = _clone_row(table, anchor)
-            _set_row_fill(new_row, _YELLOW_FILL)
             _write_row(new_row, ln)
             applied += 1
 
@@ -143,22 +115,7 @@ def _is_acidente_or_mecanico(cat: str) -> bool:
     return any(k in n for k in ("mecan", "mecân", "acident", "biolog"))
 
 
-def _set_row_fill(row, fill_hex: str) -> None:
-    for cell in row.cells:
-        tc_pr = cell._tc.get_or_add_tcPr()
-        shd = tc_pr.find(qn("w:shd"))
-        if shd is None:
-            shd = OxmlElement("w:shd")
-            tc_pr.append(shd)
-        shd.set(qn("w:val"), "clear")
-        shd.set(qn("w:fill"), fill_hex)
-
-
 def _find_insert_anchor(table: Table) -> int:
-    """
-    Linha após a qual inserir psicossocial — sempre abaixo de Ergonômico/psico (amarelo),
-    nunca após Acidentes/Mecânico (azul).
-    """
     psico_idx: int | None = None
     last_ergo_idx: int | None = None
     first_acidente_idx: int | None = None
@@ -183,14 +140,6 @@ def _find_insert_anchor(table: Table) -> int:
     return max(len(table.rows) - 2, 1)
 
 
-def _find_psico_index(table: Table) -> int | None:
-    idx = _find_insert_anchor(table)
-    cat = _row_category(table.rows[idx]) if idx < len(table.rows) else ""
-    if _is_psico_category(cat) or _is_ergonomico_category(cat):
-        return idx
-    return None
-
-
 def _write_row(row, ln: ProposedLine) -> None:
     danos = ln.danos or ""
     if is_robotic_danos(danos):
@@ -213,15 +162,13 @@ def _write_row(row, ln: ProposedLine) -> None:
         ln.controles,
     ]
     cells = row.cells
-    # table has 10 logical cols but merges may duplicate; write first 10 unique positions
-    # python-docx returns merged cells repeatedly — write by index 0..9 carefully
-    written = set()
+    written: set[int] = set()
     for idx, val in enumerate(values):
         if idx >= len(cells):
             break
-        # skip if this cell object already written (merge)
         cell_id = id(cells[idx]._tc)
         if cell_id in written:
             continue
-        _set_cell_text(cells[idx], val)
+        set_cell_text(cells[idx], val)
         written.add(cell_id)
+    style_psico_aprho_row(row, potencial=ln.potencial)

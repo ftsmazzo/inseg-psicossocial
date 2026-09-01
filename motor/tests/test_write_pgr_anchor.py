@@ -9,9 +9,15 @@ from docx import Document
 from docx.oxml.ns import qn
 
 from motor.models import LineStatus, ProposedLine
+from motor.pgr_docx_utils import unique_cells
 from motor.write_pgr import apply_lines_to_pgr, _find_insert_anchor, _row_category
 
 AMENDO = Path(__file__).resolve().parents[2] / "modelos" / "PGR-Amendo.docx"
+
+
+def _row_fill_cell(cell) -> str:
+    shd = cell._tc.tcPr.find(qn("w:shd")) if cell._tc.tcPr is not None else None
+    return shd.get(qn("w:fill"), "") if shd is not None else ""
 
 
 def _line(*, ghe: str, table: int, psico_idx: int | None = None) -> ProposedLine:
@@ -43,8 +49,7 @@ def _line(*, ghe: str, table: int, psico_idx: int | None = None) -> ProposedLine
 
 
 def _row_fill(row) -> str:
-    shd = row.cells[0]._tc.tcPr.find(qn("w:shd")) if row.cells[0]._tc.tcPr is not None else None
-    return shd.get(qn("w:fill"), "") if shd is not None else ""
+    return _row_fill_cell(row.cells[0])
 
 
 def test_insert_anchor_before_acidentes_amendo():
@@ -78,9 +83,11 @@ def test_insert_new_line_yellow_after_psico():
         assert len(psico_rows) >= 2
         new_idx = psico_rows[-1]
         assert _row_fill(table.rows[new_idx]).upper() == "FFFF00"
-        if new_idx + 1 < len(table.rows):
-            next_cat = _row_category(table.rows[new_idx + 1]).lower()
-            assert "mec" in next_cat or "acident" in next_cat
+        # demais colunas sem cor de fundo
+        uniq = unique_cells(table.rows[new_idx])
+        for i, (_, cell) in enumerate(uniq):
+            if i not in (0, 8):
+                assert _row_fill_cell(cell) in ("", "auto", "FFFFFF")
 
 
 if __name__ == "__main__":

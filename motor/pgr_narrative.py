@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import copy
 import logging
-import re
-import unicodedata
 from dataclasses import dataclass
 from typing import Literal
 
 from docx import Document
 from docx.text.paragraph import Paragraph
+
+from motor.pgr_docx_utils import clone_paragraph_after, norm_text, paragraph_has_numpr
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +17,7 @@ Mode = Literal["append", "insert_after"]
 
 
 def _norm(text: str) -> str:
-    t = unicodedata.normalize("NFKC", text or "")
-    t = t.replace("\xa0", " ")
-    return re.sub(r"\s+", " ", t).strip().lower()
+    return norm_text(text)
 
 
 def _doc_contains(doc: Document, marker: str) -> bool:
@@ -51,34 +48,7 @@ def _find_paragraph(doc: Document, *anchor_substrings: str) -> Paragraph | None:
     return None
 
 
-def _clone_paragraph_after(template: Paragraph, text: str, after: Paragraph) -> Paragraph:
-    """Insere parágrafo clonando XML do template (fonte, tamanho, estilo Inseg)."""
-    new_el = copy.deepcopy(template._p)
-    after._p.addnext(new_el)
-    new_para = Paragraph(new_el, after._parent)
-    if new_para.runs:
-        new_para.runs[0].text = text
-        for run in new_para.runs[1:]:
-            run.text = ""
-    else:
-        new_para.text = text
-    return new_para
-
-
-def _insert_formatted_after(
-    anchor: Paragraph,
-    lines: list[str],
-    *,
-    template: Paragraph | None = None,
-) -> None:
-    tpl = template or anchor
-    current = anchor
-    for line in lines:
-        current = _clone_paragraph_after(tpl, line, current)
-
-
 def _append_to_paragraph(paragraph: Paragraph, suffix: str) -> None:
-    """Acrescenta ao fim preservando formatação do primeiro run quando possível."""
     base = paragraph.text.rstrip()
     if base.endswith("."):
         base = base[:-1].rstrip()
@@ -92,7 +62,6 @@ def _append_to_paragraph(paragraph: Paragraph, suffix: str) -> None:
 
 
 def _find_last_references_anchor(doc: Document) -> Paragraph | None:
-    """Último item da seção DOCUMENTOS DE REFERÊNCIA (final do documento)."""
     last_heading: int | None = None
     for i, para in enumerate(doc.paragraphs):
         if _norm(para.text.replace("\t", "")) == _norm("DOCUMENTOS DE REFERÊNCIA"):
@@ -107,20 +76,35 @@ def _find_last_references_anchor(doc: Document) -> Paragraph | None:
         if not text:
             continue
         style = para.style.name if para.style else ""
-        if style.startswith("Heading"):
+        if style.startswith("Heading") and _norm(text) != _norm("DOCUMENTOS DE REFERÊNCIA"):
             break
         insert_after = para
     return insert_after
 
 
-def _find_plano_emergencia_insert_after(doc: Document, anchor: Paragraph) -> Paragraph:
-    """
-    Último ponto do bloco de acidente elétrico (modelo Amendo/Inseg),
-    antes de EVACUAÇÃO / INCÊNDIO ou conteúdo psicossocial já inserido.
-    """
+def _find_evacuacao_paragraph(doc: Document) -> Paragraph | None:
+    for para in doc.paragraphs:
+        t = _norm(para.text)
+        if t.startswith("evacua") and len(t) < 40:
+            return para
+    return None
+
+
+def _last_electrical_bullet_before_evacuacao(doc: Document, anchor: Paragraph) -> Paragraph:
+    """Último item numerado do bloco elétrico, imediatamente antes de EVACUAÇÃO."""
     idx = _paragraph_index(doc, anchor)
     if idx is None:
         return anchor
+
+    evac_idx: int | None = None
+    for i in range(idx + 1, len(doc.paragraphs)):
+        t = _norm(doc.paragraphs[i].text)
+        if t.startswith("evacua") and len(t) < 40:
+            evac_idx = i
+            break
+
+    if evac_idx is not None and evac_idx > idx + 1:
+        return doc.paragraphs[evac_idx - 1]
 
     insert_after = anchor
     for i in range(idx + 1, len(doc.paragraphs)):
@@ -128,7 +112,7 @@ def _find_plano_emergencia_insert_after(doc: Document, anchor: Paragraph) -> Par
         t = _norm(para.text)
         if not t:
             continue
-        if any(k in t for k in ("evacua", "incêndio", "incendio", "em caso de inc")):
+        if t.startswith("evacua") or "incêndio" in t or "incendio" in t:
             break
         if "crise emocional" in t:
             break
@@ -136,14 +120,13 @@ def _find_plano_emergencia_insert_after(doc: Document, anchor: Paragraph) -> Par
     return insert_after
 
 
-def _bullet_template_after_anchor(doc: Document, anchor: Paragraph) -> Paragraph:
-    """Primeiro item de procedimento após o parágrafo-âncora (ex.: passo elétrico)."""
+def _first_numbered_bullet_after(doc: Document, anchor: Paragraph) -> Paragraph:
     idx = _paragraph_index(doc, anchor)
     if idx is None:
         return anchor
-    for i in range(idx + 1, min(idx + 6, len(doc.paragraphs))):
+    for i in range(idx + 1, min(idx + 8, len(doc.paragraphs))):
         para = doc.paragraphs[i]
-        if len(para.text.strip()) > 20:
+        if paragraph_has_numpr(para) and len(para.text.strip()) > 15:
             return para
     return anchor
 
@@ -229,6 +212,20 @@ _PATCHES: tuple[_Patch, ...] = (
 )
 
 
+def _insert_plano_emergencia_psico(doc: Document, anchor: Paragraph, lines: tuple[str, ...]) -> None:
+    """Após acidentes elétricos e antes de EVACUAÇÃO — intro + marcadores numerados."""
+    if not lines:
+        return
+    insert_after = _last_electrical_bullet_before_evacuacao(doc, anchor)
+    bullet_tpl = _first_numbered_bullet_after(doc, anchor)
+    intro_tpl = anchor
+
+    intro, *bullets = list(lines)
+    current = clone_paragraph_after(intro_tpl, intro, insert_after)
+    for item in bullets:
+        current = clone_paragraph_after(bullet_tpl, item, current)
+
+
 def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
     results: dict[str, str | bool] = {}
 
@@ -244,7 +241,9 @@ def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
                 logger.warning("PGR narrative: seção DOCUMENTOS DE REFERÊNCIA não encontrada")
                 continue
             tpl = _find_paragraph(doc, patch.insert_style_from or "") or anchor
-            _insert_formatted_after(anchor, list(patch.insert_lines), template=tpl)
+            current = anchor
+            for line in patch.insert_lines:
+                current = clone_paragraph_after(tpl, line, current)
             results[patch.patch_id] = "applied"
             continue
 
@@ -264,13 +263,7 @@ def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
             continue
 
         if patch.plano_emergencia_block:
-            insert_after = _find_plano_emergencia_insert_after(doc, anchor)
-            bullet_tpl = _bullet_template_after_anchor(doc, anchor)
-            _insert_formatted_after(
-                insert_after,
-                list(patch.insert_lines),
-                template=bullet_tpl,
-            )
+            _insert_plano_emergencia_psico(doc, anchor, patch.insert_lines)
             results[patch.patch_id] = "applied"
             continue
 
@@ -279,7 +272,9 @@ def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
             src = _find_paragraph(doc, patch.insert_style_from)
             if src is not None:
                 tpl = src
-        _insert_formatted_after(anchor, list(patch.insert_lines), template=tpl)
+        current = anchor
+        for line in patch.insert_lines:
+            current = clone_paragraph_after(tpl, line, current)
         results[patch.patch_id] = "applied"
 
     return results
