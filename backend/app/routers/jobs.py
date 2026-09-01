@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -135,7 +136,6 @@ async def upload_files(
 @router.post("/{job_id}/process", response_model=JobOut)
 def run_process(
     job_id: int,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -165,7 +165,12 @@ def run_process(
         message="Na fila — iniciando motor…",
         phase="parse",
     )
-    background_tasks.add_task(process_job_background, job.id)
+    threading.Thread(
+        target=process_job_background,
+        args=(job.id,),
+        daemon=True,
+        name=f"inseg-process-{job.id}",
+    ).start()
     db.refresh(job)
     return _job_out(job, db)
 

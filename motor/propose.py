@@ -32,6 +32,14 @@ from motor.dossier_insights import build_motor_rationale, compute_prioridade_aca
 MIN_ANONIMATO = 5
 GHE_ORCHESTRATE_TIMEOUT = 75
 
+
+def batch_llm_enabled() -> bool:
+    """LLM por GHE no processamento em lote — opt-in (OPENROUTER_BATCH_LLM=1)."""
+    if not openrouter_enabled():
+        return False
+    flag = os.getenv("OPENROUTER_BATCH_LLM", "").strip().lower()
+    return flag in {"1", "true", "yes", "on"}
+
 logger = logging.getLogger(__name__)
 
 OnLineCb = Callable[[ProposedLine, int, int], None]
@@ -92,12 +100,15 @@ def propose(
     )
 
     orch_ok = orch_retry = orch_fail = skipped_resume = 0
-    if openrouter_enabled():
+    if batch_llm_enabled():
         notes.append(
-            f"Motor mecânico (Agente/danos) + LLM {orchestrator_model()} só em causa/controles (skill+RAG)."
+            f"LLM batch ativo ({orchestrator_model()}) — causa/controles por GHE."
         )
     else:
-        notes.append("OpenRouter ausente — só motor determinístico.")
+        notes.append(
+            "Processamento batch rápido (motor determinístico). "
+            "Refine linhas na revisão ou chat. LLM batch: OPENROUTER_BATCH_LLM=1."
+        )
 
     os.environ.pop("OPENROUTER_LAST_ERROR", None)
     matched_cargo_keys: set[str] = set()
@@ -150,7 +161,22 @@ def propose(
 
         try:
             draft = draft_from_dossier(d)
-            texts, llm_status = _orchestrate_with_timeout(ctx, d, draft=draft)
+            if batch_llm_enabled():
+                def _heartbeat() -> None:
+                    if on_progress is not None:
+                        on_progress(
+                            ghe.numero,
+                            ghe.nome,
+                            len(lines) + skipped_resume,
+                            total,
+                        )
+
+                texts, llm_status = _orchestrate_with_timeout(
+                    ctx, d, draft=draft, heartbeat=_heartbeat
+                )
+            else:
+                texts = draft
+                llm_status = "skipped"
         except Exception as exc:  # noqa: BLE001
             logger.exception("GHE %s: falha inesperada — motor local", ghe.numero)
             draft = draft_from_dossier(d)

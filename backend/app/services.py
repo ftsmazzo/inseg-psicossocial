@@ -185,7 +185,7 @@ def read_progress(job_id: int) -> dict | None:
 
 
 def process_job_background(job_id: int) -> None:
-    """Roda fora do request HTTP — a UI pode pollar progresso."""
+    """Roda em thread separada — não bloqueia o worker HTTP."""
     import logging
 
     from app.db import SessionLocal
@@ -201,37 +201,6 @@ def process_job_background(job_id: int) -> None:
         log.exception("process_job_background falhou job_id=%s: %s", job_id, exc)
     finally:
         db.close()
-        db2 = SessionLocal()
-        try:
-            job = db2.query(Job).filter(Job.id == job_id).first()
-            if not job or job.status != JobStatus.processing:
-                return
-            if not _processing_stale(job, minutes=1):
-                return
-            saved = db2.query(JobLine).filter(JobLine.job_id == job_id).count()
-            job.status = JobStatus.review if saved else JobStatus.failed
-            job.error_message = (
-                f"Processamento interrompido | Parcial salvo: {saved} GHE(s). "
-                "Use Continuar processamento para retomar."
-            )
-            notes = list(job.notes_json or [])
-            notes.append(job.error_message)
-            job.notes_json = notes
-            db2.add(job)
-            db2.commit()
-            prog = read_progress(job_id) or {}
-            total = max(int(prog.get("total") or 0), saved, 1)
-            write_progress(
-                job_id,
-                done=saved,
-                total=max(total, 1),
-                message=f"Interrompido — {saved}/{total} GHE(s) salvos",
-                phase="stopped",
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.exception("process_job_background cleanup job_id=%s: %s", job_id, exc)
-        finally:
-            db2.close()
 
 
 def _processing_stale(job: Job, *, minutes: int = 2) -> bool:
