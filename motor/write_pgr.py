@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
+import unicodedata
 from pathlib import Path
 
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.table import Table, _Row
 
 from motor.llm import is_robotic_danos
@@ -15,6 +19,7 @@ from motor.pgr_narrative import apply_psicossocial_narratives
 logger = logging.getLogger(__name__)
 
 _SAFE_DANOS_FALLBACK = "Agravos Ocupacionais SST a Definir — Revisar Manualmente"
+_YELLOW_FILL = "FFFF00"
 
 
 def _set_cell_text(cell, text: str) -> None:
@@ -87,11 +92,15 @@ def apply_lines_to_pgr(
         for ln in inserts:
             anchor = ln.psico_row_index
             if anchor is None:
-                # find psico or last row
-                anchor = _find_psico_index(table)
-            if anchor is None:
-                anchor = len(table.rows) - 1
+                anchor = _find_insert_anchor(table)
+            elif anchor >= len(table.rows):
+                anchor = _find_insert_anchor(table)
+            else:
+                cat = _row_category(table.rows[anchor])
+                if _is_acidente_or_mecanico(cat):
+                    anchor = _find_insert_anchor(table)
             new_row = _clone_row(table, anchor)
+            _set_row_fill(new_row, _YELLOW_FILL)
             _write_row(new_row, ln)
             applied += 1
 
@@ -109,11 +118,76 @@ def apply_lines_to_pgr(
     }
 
 
-def _find_psico_index(table: Table) -> int | None:
+def _norm_cat(text: str) -> str:
+    t = unicodedata.normalize("NFKC", text or "")
+    return re.sub(r"\s+", " ", t.replace("\xa0", " ")).strip().lower()
+
+
+def _row_category(row) -> str:
+    if not row.cells:
+        return ""
+    return (row.cells[0].text or "").strip()
+
+
+def _is_psico_category(cat: str) -> bool:
+    return "psicos" in _norm_cat(cat)
+
+
+def _is_ergonomico_category(cat: str) -> bool:
+    n = _norm_cat(cat)
+    return "ergon" in n and "psicos" not in n
+
+
+def _is_acidente_or_mecanico(cat: str) -> bool:
+    n = _norm_cat(cat)
+    return any(k in n for k in ("mecan", "mecân", "acident", "biolog"))
+
+
+def _set_row_fill(row, fill_hex: str) -> None:
+    for cell in row.cells:
+        tc_pr = cell._tc.get_or_add_tcPr()
+        shd = tc_pr.find(qn("w:shd"))
+        if shd is None:
+            shd = OxmlElement("w:shd")
+            tc_pr.append(shd)
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:fill"), fill_hex)
+
+
+def _find_insert_anchor(table: Table) -> int:
+    """
+    Linha após a qual inserir psicossocial — sempre abaixo de Ergonômico/psico (amarelo),
+    nunca após Acidentes/Mecânico (azul).
+    """
+    psico_idx: int | None = None
+    last_ergo_idx: int | None = None
+    first_acidente_idx: int | None = None
+
     for i, row in enumerate(table.rows):
-        texts = [c.text for c in row.cells]
-        if any("psicos" in (t or "").lower() for t in texts[:2]):
-            return i
+        cat = _row_category(row)
+        if not cat or _norm_cat(cat) in {"categoria", "perigos"}:
+            continue
+        if _is_psico_category(cat):
+            psico_idx = i
+        elif _is_ergonomico_category(cat):
+            last_ergo_idx = i
+        elif _is_acidente_or_mecanico(cat) and first_acidente_idx is None:
+            first_acidente_idx = i
+
+    if psico_idx is not None:
+        return psico_idx
+    if last_ergo_idx is not None:
+        return last_ergo_idx
+    if first_acidente_idx is not None and first_acidente_idx > 0:
+        return first_acidente_idx - 1
+    return max(len(table.rows) - 2, 1)
+
+
+def _find_psico_index(table: Table) -> int | None:
+    idx = _find_insert_anchor(table)
+    cat = _row_category(table.rows[idx]) if idx < len(table.rows) else ""
+    if _is_psico_category(cat) or _is_ergonomico_category(cat):
+        return idx
     return None
 
 

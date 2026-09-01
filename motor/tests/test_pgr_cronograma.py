@@ -67,8 +67,8 @@ def test_cronogram_groups_moderado_plus():
     assert result["rows_added"] == 2
 
     flat = " ".join(c.text for t in doc.tables for r in t.rows for c in r.cells)
-    assert "Medidas psicossociais — ACM" in flat
-    assert "Medidas psicossociais — Montagem" in flat
+    assert "organização do trabalho e gestão de demandas" in flat
+    assert "comunicação, reconhecimento e apoio" in flat
 
     result2 = apply_psicossocial_cronogram(doc, lines)
     assert result2["status"] == "skipped"

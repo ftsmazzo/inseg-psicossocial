@@ -6,8 +6,6 @@ import copy
 import logging
 import re
 import unicodedata
-from collections import defaultdict
-from dataclasses import dataclass
 
 from docx import Document
 from docx.table import Table, _Row
@@ -20,8 +18,23 @@ _POTENCIAL_EXCLUIDOS = frozenset({"muito baixo", "baixo"})
 _CRONOGRAMA_MARKER = "Medidas psicossociais —"
 _DATA_ROW_RE = re.compile(r"^\d{1,3}$")
 
-# Coluna única de "P" (previsto) por prioridade de ação
 _PRIORIDADE_P_COL = {"1": 6, "2": 10, "3": 16, "": 10}
+
+# Duas ações genéricas — evita desconfigurar o cronograma com dezenas de linhas.
+_GENERIC_ACTIONS: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "2",
+        "Medidas psicossociais — organização do trabalho e gestão de demandas (SSOS/PGRO)",
+        "Atender fatores psicossociais identificados na avaliação (demanda, controle, apoio)",
+        "Revisar organização do trabalho, metas, pausas e canais de comunicação conforme PGR",
+    ),
+    (
+        "2",
+        "Medidas psicossociais — comunicação, reconhecimento e apoio às equipes (SSOS/PGRO)",
+        "Reduzir exposição a fatores psicossociais relacionados ao clima e reconhecimento",
+        "Implementar ações de prevenção, acolhimento e acompanhamento conforme SSOS/PGRO",
+    ),
+)
 
 
 def _norm(text: str) -> str:
@@ -88,55 +101,6 @@ def _next_sequence(table: Table) -> int:
         return 1
 
 
-def _truncate(text: str, limit: int) -> str:
-    text = re.sub(r"\s+", " ", (text or "").strip())
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1].rstrip() + "…"
-
-
-@dataclass
-class _CronogramGroup:
-    setor: str
-    agente: str
-    ghe_numeros: list[str]
-    controles: str
-    prioridade: str
-
-
-def _build_groups(lines: list[ProposedLine]) -> list[_CronogramGroup]:
-    buckets: dict[tuple[str, str], list[ProposedLine]] = defaultdict(list)
-    for ln in lines:
-        if not _needs_cronograma(ln.potencial):
-            continue
-        setor = (ln.setor_pgr or "Geral").strip() or "Geral"
-        agente = (ln.agente or "Fatores psicossociais").strip()
-        buckets[(setor, agente)].append(ln)
-
-    groups: list[_CronogramGroup] = []
-    for (setor, agente), items in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][1])):
-        ghes = sorted({ln.ghe_numero for ln in items}, key=lambda g: (len(g), g))
-        controles = max((ln.controles or "" for ln in items), key=len)
-        prios = [ln.prioridade_acao for ln in items if ln.prioridade_acao in {"1", "2", "3"}]
-        prioridade = min(prios) if prios else "2"
-        groups.append(
-            _CronogramGroup(
-                setor=setor,
-                agente=agente,
-                ghe_numeros=ghes,
-                controles=controles,
-                prioridade=prioridade,
-            )
-        )
-    return groups
-
-
-def _format_ghe_list(ghes: list[str]) -> str:
-    if len(ghes) <= 8:
-        return ", ".join(ghes)
-    return f"{', '.join(ghes[:8])} (+{len(ghes) - 8} GHEs)"
-
-
 def _write_cronogram_row(
     row: _Row,
     *,
@@ -175,9 +139,13 @@ def _cronogram_already_applied(table: Table) -> bool:
     return False
 
 
+def _has_eligible_lines(lines: list[ProposedLine]) -> bool:
+    return any(_needs_cronograma(ln.potencial) for ln in lines)
+
+
 def apply_psicossocial_cronogram(doc: Document, lines: list[ProposedLine]) -> dict:
     """
-    Modo B: uma linha por (setor, agente) quando potencial > Baixo.
+    Duas ações genéricas psicossociais quando houver linha com potencial > Baixo.
     Idempotente se linhas psicossociais já existirem no cronograma.
     """
     table = _find_cronogram_table(doc)
@@ -188,8 +156,7 @@ def apply_psicossocial_cronogram(doc: Document, lines: list[ProposedLine]) -> di
     if _cronogram_already_applied(table):
         return {"status": "skipped", "rows_added": 0, "groups": 0}
 
-    groups = _build_groups(lines)
-    if not groups:
+    if not _has_eligible_lines(lines):
         return {"status": "no_eligible_lines", "rows_added": 0, "groups": 0}
 
     anchor = _last_data_row_index(table)
@@ -198,18 +165,7 @@ def apply_psicossocial_cronogram(doc: Document, lines: list[ProposedLine]) -> di
 
     seq = _next_sequence(table)
     added = 0
-    for group in groups:
-        ghe_txt = _format_ghe_list(group.ghe_numeros)
-        o_que = _truncate(
-            f"{_CRONOGRAMA_MARKER} {group.setor} — GHEs {ghe_txt}",
-            120,
-        )
-        por_que = _truncate(
-            f"Reduzir exposição a {group.agente} conforme avaliação psicossocial (SSOS/PGRO)",
-            200,
-        )
-        como = _truncate(group.controles, 220)
-
+    for prioridade, o_que, por_que, como in _GENERIC_ACTIONS:
         new_row = _clone_row(table, anchor)
         anchor += 1
         _write_cronogram_row(
@@ -218,9 +174,9 @@ def apply_psicossocial_cronogram(doc: Document, lines: list[ProposedLine]) -> di
             o_que=o_que,
             por_que=por_que,
             como=como,
-            prioridade=group.prioridade,
+            prioridade=prioridade,
         )
         seq += 1
         added += 1
 
-    return {"status": "applied", "rows_added": added, "groups": len(groups)}
+    return {"status": "applied", "rows_added": added, "groups": len(_GENERIC_ACTIONS)}

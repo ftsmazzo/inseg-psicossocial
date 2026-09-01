@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 import unicodedata
@@ -32,8 +33,14 @@ def _doc_contains(doc: Document, marker: str) -> bool:
     return False
 
 
+def _paragraph_index(doc: Document, para: Paragraph) -> int | None:
+    for i, p in enumerate(doc.paragraphs):
+        if p._p is para._p:
+            return i
+    return None
+
+
 def _find_paragraph(doc: Document, *anchor_substrings: str) -> Paragraph | None:
-    """Primeiro parágrafo cujo texto contém todos os substrings (normalizados)."""
     if not anchor_substrings:
         return None
     needles = [_norm(s) for s in anchor_substrings]
@@ -44,34 +51,51 @@ def _find_paragraph(doc: Document, *anchor_substrings: str) -> Paragraph | None:
     return None
 
 
+def _clone_paragraph_after(template: Paragraph, text: str, after: Paragraph) -> Paragraph:
+    """Insere parágrafo clonando XML do template (fonte, tamanho, estilo Inseg)."""
+    new_el = copy.deepcopy(template._p)
+    after._p.addnext(new_el)
+    new_para = Paragraph(new_el, after._parent)
+    if new_para.runs:
+        new_para.runs[0].text = text
+        for run in new_para.runs[1:]:
+            run.text = ""
+    else:
+        new_para.text = text
+    return new_para
+
+
+def _insert_formatted_after(
+    anchor: Paragraph,
+    lines: list[str],
+    *,
+    template: Paragraph | None = None,
+) -> None:
+    tpl = template or anchor
+    current = anchor
+    for line in lines:
+        current = _clone_paragraph_after(tpl, line, current)
+
+
 def _append_to_paragraph(paragraph: Paragraph, suffix: str) -> None:
-    """Acrescenta texto ao fim do parágrafo, removendo ponto final se houver."""
+    """Acrescenta ao fim preservando formatação do primeiro run quando possível."""
     base = paragraph.text.rstrip()
     if base.endswith("."):
         base = base[:-1].rstrip()
-    paragraph.text = f"{base}{suffix}"
-
-
-def _insert_after(paragraph: Paragraph, lines: list[str]) -> None:
-    """Insere parágrafos após o âncora, copiando o estilo dele."""
-    from docx.oxml import OxmlElement
-
-    style = paragraph.style
-    anchor = paragraph
-    for line in lines:
-        new_p = OxmlElement("w:p")
-        anchor._p.addnext(new_p)
-        new_para = Paragraph(new_p, paragraph._parent)
-        new_para.style = style
-        new_para.text = line
-        anchor = new_para
+    new_text = f"{base}{suffix}"
+    if paragraph.runs:
+        paragraph.runs[0].text = new_text
+        for run in paragraph.runs[1:]:
+            run.text = ""
+    else:
+        paragraph.text = new_text
 
 
 def _find_last_references_anchor(doc: Document) -> Paragraph | None:
     """Último item da seção DOCUMENTOS DE REFERÊNCIA (final do documento)."""
     last_heading: int | None = None
     for i, para in enumerate(doc.paragraphs):
-        if _norm(para.text) == _norm("DOCUMENTOS DE REFERÊNCIA"):
+        if _norm(para.text.replace("\t", "")) == _norm("DOCUMENTOS DE REFERÊNCIA"):
             last_heading = i
     if last_heading is None:
         return None
@@ -89,6 +113,41 @@ def _find_last_references_anchor(doc: Document) -> Paragraph | None:
     return insert_after
 
 
+def _find_plano_emergencia_insert_after(doc: Document, anchor: Paragraph) -> Paragraph:
+    """
+    Último ponto do bloco de acidente elétrico (modelo Amendo/Inseg),
+    antes de EVACUAÇÃO / INCÊNDIO ou conteúdo psicossocial já inserido.
+    """
+    idx = _paragraph_index(doc, anchor)
+    if idx is None:
+        return anchor
+
+    insert_after = anchor
+    for i in range(idx + 1, len(doc.paragraphs)):
+        para = doc.paragraphs[i]
+        t = _norm(para.text)
+        if not t:
+            continue
+        if any(k in t for k in ("evacua", "incêndio", "incendio", "em caso de inc")):
+            break
+        if "crise emocional" in t:
+            break
+        insert_after = para
+    return insert_after
+
+
+def _bullet_template_after_anchor(doc: Document, anchor: Paragraph) -> Paragraph:
+    """Primeiro item de procedimento após o parágrafo-âncora (ex.: passo elétrico)."""
+    idx = _paragraph_index(doc, anchor)
+    if idx is None:
+        return anchor
+    for i in range(idx + 1, min(idx + 6, len(doc.paragraphs))):
+        para = doc.paragraphs[i]
+        if len(para.text.strip()) > 20:
+            return para
+    return anchor
+
+
 @dataclass(frozen=True)
 class _Patch:
     patch_id: str
@@ -97,10 +156,10 @@ class _Patch:
     marker: str
     append_suffix: str = ""
     insert_lines: tuple[str, ...] = ()
-    insert_style_from: str | None = None  # substring para copiar estilo de outro parágrafo
+    insert_style_from: str | None = None
+    plano_emergencia_block: bool = False
 
 
-# Textos fixos — iguais para todos os PGR com psicossocial Inseg.
 _PATCHES: tuple[_Patch, ...] = (
     _Patch(
         patch_id="5.2",
@@ -154,12 +213,12 @@ _PATCHES: tuple[_Patch, ...] = (
             "Acionar atendimento médico quando necessário;",
             "Registrar a ocorrência para acompanhamento e adoção das medidas cabíveis.",
         ),
-        insert_style_from="acidente de trabalho de origem elétrica",
+        plano_emergencia_block=True,
     ),
     _Patch(
         patch_id="documentos_referencia_psico",
         mode="insert_after",
-        anchors=(),  # tratado à parte
+        anchors=(),
         marker="Relatório de Avaliação Psicossocial (SSOS)",
         insert_lines=(
             "Relatório de Avaliação Psicossocial (SSOS);",
@@ -171,11 +230,6 @@ _PATCHES: tuple[_Patch, ...] = (
 
 
 def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
-    """
-    Insere trechos descritivos psicossociais padrão Inseg.
-    Idempotente: não duplica se o marcador já existir no documento.
-    Retorna status por patch_id.
-    """
     results: dict[str, str | bool] = {}
 
     for patch in _PATCHES:
@@ -189,17 +243,8 @@ def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
                 results[patch.patch_id] = "anchor_not_found"
                 logger.warning("PGR narrative: seção DOCUMENTOS DE REFERÊNCIA não encontrada")
                 continue
-            style = anchor.style
-            from docx.oxml import OxmlElement
-
-            insert_after = anchor
-            for line in patch.insert_lines:
-                new_p = OxmlElement("w:p")
-                insert_after._p.addnext(new_p)
-                new_para = Paragraph(new_p, anchor._parent)
-                new_para.style = style
-                new_para.text = line
-                insert_after = new_para
+            tpl = _find_paragraph(doc, patch.insert_style_from or "") or anchor
+            _insert_formatted_after(anchor, list(patch.insert_lines), template=tpl)
             results[patch.patch_id] = "applied"
             continue
 
@@ -218,22 +263,23 @@ def apply_psicossocial_narratives(doc: Document) -> dict[str, str | bool]:
             results[patch.patch_id] = "applied"
             continue
 
-        style = anchor.style
+        if patch.plano_emergencia_block:
+            insert_after = _find_plano_emergencia_insert_after(doc, anchor)
+            bullet_tpl = _bullet_template_after_anchor(doc, anchor)
+            _insert_formatted_after(
+                insert_after,
+                list(patch.insert_lines),
+                template=bullet_tpl,
+            )
+            results[patch.patch_id] = "applied"
+            continue
+
+        tpl = anchor
         if patch.insert_style_from:
             src = _find_paragraph(doc, patch.insert_style_from)
             if src is not None:
-                style = src.style
-
-        from docx.oxml import OxmlElement
-
-        insert_after = anchor
-        for line in patch.insert_lines:
-            new_p = OxmlElement("w:p")
-            insert_after._p.addnext(new_p)
-            new_para = Paragraph(new_p, anchor._parent)
-            new_para.style = style
-            new_para.text = line
-            insert_after = new_para
+                tpl = src
+        _insert_formatted_after(anchor, list(patch.insert_lines), template=tpl)
         results[patch.patch_id] = "applied"
 
     return results
