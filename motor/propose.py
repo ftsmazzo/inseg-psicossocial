@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import logging
 import os
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
@@ -29,12 +30,13 @@ from motor.dossier_insights import build_motor_rationale, compute_prioridade_aca
 
 
 MIN_ANONIMATO = 5
-GHE_ORCHESTRATE_TIMEOUT = 130
+GHE_ORCHESTRATE_TIMEOUT = 75
 
 logger = logging.getLogger(__name__)
 
 OnLineCb = Callable[[ProposedLine, int, int], None]
 OnProgressCb = Callable[[str, str, int, int], None]
+HeartbeatCb = Callable[[], None]
 
 
 def _orchestrate_with_timeout(
@@ -43,15 +45,24 @@ def _orchestrate_with_timeout(
     *,
     draft: dict[str, str],
     timeout: int = GHE_ORCHESTRATE_TIMEOUT,
+    heartbeat: HeartbeatCb | None = None,
 ) -> tuple[dict[str, str], str]:
     """Evita travar o job inteiro se o LLM não responder."""
     pool = ThreadPoolExecutor(max_workers=1)
     fut = pool.submit(orchestrate_ghe, ctx, dossier, draft=draft)
+    deadline = time.monotonic() + timeout
     try:
-        return fut.result(timeout=timeout)
-    except FuturesTimeout:
-        logger.warning("GHE %s: timeout LLM (%ss)", dossier.ghe_numero, timeout)
-        return draft, "orchestrator:timeout"
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.warning("GHE %s: timeout LLM (%ss)", dossier.ghe_numero, timeout)
+                return draft, "orchestrator:timeout"
+            try:
+                return fut.result(timeout=min(12.0, remaining))
+            except FuturesTimeout:
+                if heartbeat:
+                    heartbeat()
+                continue
     except Exception as exc:  # noqa: BLE001
         logger.exception("GHE %s: erro no orquestrador", dossier.ghe_numero)
         return draft, f"orchestrator:error ({str(exc)[:80]})"

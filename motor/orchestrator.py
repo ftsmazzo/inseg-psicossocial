@@ -87,7 +87,7 @@ def _chat_completion(
     temperature: float = 0.12,
     model: str | None = None,
     response_format: dict | None = None,
-    timeout: int = 90,
+    timeout: int = 60,
     max_tokens: int | None = 700,
 ) -> dict[str, Any]:
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
