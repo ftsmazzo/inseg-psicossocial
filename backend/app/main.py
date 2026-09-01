@@ -37,7 +37,8 @@ def on_startup() -> None:
     ensure_schema_patches()
     db = SessionLocal()
     try:
-        if not get_user_by_email(db, settings.bootstrap_admin_email):
+        admin = get_user_by_email(db, settings.bootstrap_admin_email)
+        if not admin:
             db.add(
                 User(
                     email=settings.bootstrap_admin_email,
@@ -46,7 +47,10 @@ def on_startup() -> None:
                     is_admin=True,
                 )
             )
-            db.commit()
+        else:
+            admin.name = settings.bootstrap_admin_name
+            admin.hashed_password = hash_password(settings.bootstrap_admin_password)
+        db.commit()
     finally:
         db.close()
 
@@ -59,6 +63,9 @@ def health():
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+    img_dir = STATIC_DIR / "img"
+    if img_dir.exists():
+        app.mount("/img", StaticFiles(directory=img_dir), name="img")
 
     @app.get("/{full_path:path}")
     def spa(full_path: str):
