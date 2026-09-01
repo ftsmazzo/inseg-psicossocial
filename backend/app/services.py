@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import sys
+import threading
 from pathlib import Path
 
 from sqlalchemy.orm import Session
+
+log = logging.getLogger("inseg.process")
+
+# Evita duas threads processando o mesmo job (travava no GHE 39).
+_job_processing: set[int] = set()
+_job_processing_guard = threading.Lock()
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -184,13 +192,26 @@ def read_progress(job_id: int) -> dict | None:
         return None
 
 
+def _try_acquire_job_processing(job_id: int) -> bool:
+    with _job_processing_guard:
+        if job_id in _job_processing:
+            return False
+        _job_processing.add(job_id)
+        return True
+
+
+def _release_job_processing(job_id: int) -> None:
+    with _job_processing_guard:
+        _job_processing.discard(job_id)
+
+
 def process_job_background(job_id: int) -> None:
     """Roda em thread separada — não bloqueia o worker HTTP."""
-    import logging
-
     from app.db import SessionLocal
 
-    log = logging.getLogger("inseg.process")
+    if not _try_acquire_job_processing(job_id):
+        log.warning("job_id=%s já em processamento — thread duplicada ignorada", job_id)
+        return
     db = SessionLocal()
     try:
         job = db.query(Job).filter(Job.id == job_id).first()
@@ -201,6 +222,7 @@ def process_job_background(job_id: int) -> None:
         log.exception("process_job_background falhou job_id=%s: %s", job_id, exc)
     finally:
         db.close()
+        _release_job_processing(job_id)
 
 
 def _processing_stale(job: Job, *, minutes: int = 2) -> bool:
@@ -219,7 +241,9 @@ def _processing_stale(job: Job, *, minutes: int = 2) -> bool:
 
 def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
     from app.config import export_llm_env
+    from app.db import SessionLocal
     from motor.models import ProposedLine
+    from motor.propose import batch_llm_enabled
 
     export_llm_env()
     if not job.campanha_path or not job.pgr_path:
@@ -259,7 +283,8 @@ def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
     job.status = JobStatus.processing
     job.error_message = None
     job.notes_json = [
-        f"Processando… resume={resume}, já salvos={len(skip)} GHE(s)."
+        f"Processando… resume={resume}, já salvos={len(skip)} GHE(s).",
+        f"Motor batch_llm={batch_llm_enabled()} (False = rápido, sem OpenRouter).",
     ]
     db.add(job)
     db.commit()
@@ -276,12 +301,18 @@ def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
     )
 
     def on_progress(ghe_num: str, ghe_nome: str, done: int, total: int) -> None:
-        job.notes_json = [
-            f"Processando GHE {ghe_num} ({done + 1}/{total})…",
-            f"resume_skip={len(skip)}",
-        ]
-        db.add(job)
-        db.commit()
+        s = SessionLocal()
+        try:
+            j = s.query(Job).filter(Job.id == job.id).first()
+            if j:
+                j.notes_json = [
+                    f"Processando GHE {ghe_num} ({done + 1}/{total})…",
+                    f"resume_skip={len(skip)}",
+                ]
+                s.add(j)
+                s.commit()
+        finally:
+            s.close()
         write_progress(
             job.id,
             done=done,
@@ -293,15 +324,21 @@ def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
 
     def on_line(line: ProposedLine, done: int, total: int) -> None:
         payload = line.to_dict()
-        _upsert_job_line(db, job.id, payload)
-        with checkpoint_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
-        job.notes_json = [
-            f"Checkpoint {done}/{total} — GHE {line.ghe_numero} salvo.",
-            f"resume_skip={len(skip)}",
-        ]
-        db.add(job)
-        db.commit()
+        s = SessionLocal()
+        try:
+            _upsert_job_line(s, job.id, payload)
+            with checkpoint_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            j = s.query(Job).filter(Job.id == job.id).first()
+            if j:
+                j.notes_json = [
+                    f"Checkpoint {done}/{total} — GHE {line.ghe_numero} salvo.",
+                    f"resume_skip={len(skip)}",
+                ]
+                s.add(j)
+                s.commit()
+        finally:
+            s.close()
         write_progress(
             job.id,
             done=done,

@@ -31,6 +31,7 @@ from motor.dossier_insights import build_motor_rationale, compute_prioridade_aca
 
 MIN_ANONIMATO = 5
 GHE_ORCHESTRATE_TIMEOUT = 75
+GHE_HARD_TIMEOUT = 90
 
 
 def batch_llm_enabled() -> bool:
@@ -159,8 +160,8 @@ def propose(
         for q in d.perguntas_criticas[:5]:
             evidencias.append(f"[{q.get('dimensao')} {q.get('pct')}%] {q.get('text')}")
 
-        try:
-            draft = draft_from_dossier(d)
+        def _ghe_texts() -> tuple[dict[str, str], str, dict[str, str]]:
+            draft_local = draft_from_dossier(d)
             if batch_llm_enabled():
                 def _heartbeat() -> None:
                     if on_progress is not None:
@@ -171,12 +172,29 @@ def propose(
                             total,
                         )
 
-                texts, llm_status = _orchestrate_with_timeout(
-                    ctx, d, draft=draft, heartbeat=_heartbeat
+                texts_local, st = _orchestrate_with_timeout(
+                    ctx, d, draft=draft_local, heartbeat=_heartbeat
                 )
-            else:
+                return texts_local, st, draft_local
+            return draft_local, "skipped", draft_local
+
+        try:
+            pool = ThreadPoolExecutor(max_workers=1)
+            fut = pool.submit(_ghe_texts)
+            try:
+                texts, llm_status, draft = fut.result(timeout=GHE_HARD_TIMEOUT)
+            except FuturesTimeout:
+                logger.warning(
+                    "GHE %s: timeout total (%ss) — motor determinístico",
+                    ghe.numero,
+                    GHE_HARD_TIMEOUT,
+                )
+                draft = draft_from_dossier(d)
                 texts = draft
-                llm_status = "skipped"
+                llm_status = "orchestrator:timeout"
+                notes.append(f"GHE {ghe.numero}: timeout — usado motor local.")
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
         except Exception as exc:  # noqa: BLE001
             logger.exception("GHE %s: falha inesperada — motor local", ghe.numero)
             draft = draft_from_dossier(d)
