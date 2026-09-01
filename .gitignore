@@ -1,0 +1,13 @@
+.env
+backend/.env
+backend/.venv/
+backend/data/
+backend/psicossocial.db
+frontend/node_modules/
+backend/static/
+out/
+scripts/analysis_out/
+__pycache__/
+*.pyc
+data/
+.DS_Store

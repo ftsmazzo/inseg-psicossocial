@@ -1,0 +1,280 @@
+:root {
+  --inseg-green: #00a651;
+  --inseg-green-dark: #008c44;
+  --inseg-navy: #002147;
+  --inseg-navy-light: #003366;
+  --inseg-primary: var(--inseg-green);
+}
+
+/* Logo */
+.inseg-logo {
+  display: block;
+  max-width: 220px;
+  height: auto;
+}
+
+.inseg-logo-compact {
+  max-width: 100px;
+  max-height: 28px;
+  width: auto;
+  object-fit: contain;
+}
+
+/* Sidebar brand */
+.inseg-brand-link {
+  display: flex !important;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: auto !important;
+  height: auto !important;
+  padding: 0.65rem 0.75rem !important;
+  overflow: hidden;
+  line-height: 1.2;
+}
+
+.inseg-brand-link:hover {
+  color: #fff;
+}
+
+.inseg-brand-logo-box {
+  background: #fff;
+  border-radius: 5px;
+  padding: 4px 6px;
+  line-height: 0;
+  max-width: calc(100% - 4px);
+}
+
+.inseg-brand-logo-img {
+  display: block;
+  height: 30px;
+  width: auto;
+  max-width: 112px;
+  object-fit: contain;
+}
+
+.inseg-brand-text {
+  color: #fff !important;
+  font-weight: 400 !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: normal !important;
+  line-height: 1.25;
+  width: 100%;
+  margin-left: 0 !important;
+  opacity: 0.95;
+}
+
+/* Sidebar recolhida: só o ícone S (crop à esquerda) */
+.sidebar-mini.sidebar-collapse .main-sidebar .inseg-brand-link {
+  align-items: center;
+  padding: 0.55rem 0 !important;
+}
+
+.sidebar-mini.sidebar-collapse .main-sidebar .inseg-brand-text {
+  display: none !important;
+}
+
+.sidebar-mini.sidebar-collapse .main-sidebar .inseg-brand-logo-box {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  border-radius: 6px;
+}
+
+.sidebar-mini.sidebar-collapse .main-sidebar .inseg-brand-logo-img {
+  height: 36px;
+  width: auto;
+  max-width: none;
+  flex-shrink: 0;
+}
+
+.inseg-footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--inseg-navy);
+}
+
+.inseg-footer-logo {
+  max-width: 100px;
+  max-height: 28px;
+}
+
+/* Sidebar & navbar */
+.inseg-sidebar.sidebar-dark-primary,
+.inseg-sidebar .brand-link {
+  background-color: var(--inseg-navy) !important;
+}
+
+.sidebar-dark-primary .nav-sidebar > .nav-item > .nav-link.active,
+.sidebar-dark-primary .nav-sidebar > .nav-item > .nav-link.active:hover {
+  background-color: var(--inseg-green);
+  color: #fff;
+}
+
+.inseg-navbar {
+  border-bottom: 3px solid var(--inseg-green) !important;
+}
+
+/* Botões */
+.btn-primary {
+  background-color: var(--inseg-green);
+  border-color: var(--inseg-green-dark);
+}
+
+.btn-primary:hover,
+.btn-primary:focus,
+.btn-primary:active {
+  background-color: var(--inseg-green-dark) !important;
+  border-color: #007a3d !important;
+}
+
+.btn-inseg-outline {
+  color: var(--inseg-navy);
+  border-color: var(--inseg-navy);
+}
+
+.btn-inseg-outline:hover {
+  background: var(--inseg-navy);
+  color: #fff;
+}
+
+.card-primary.card-outline,
+.inseg-login-card {
+  border-top-color: var(--inseg-green) !important;
+}
+
+/* Login */
+.login-page {
+  background: linear-gradient(
+    145deg,
+    var(--inseg-navy) 0%,
+    var(--inseg-navy-light) 42%,
+    var(--inseg-green-dark) 100%
+  );
+  min-height: 100vh;
+}
+
+.inseg-login-box {
+  width: min(420px, 92vw);
+}
+
+.inseg-login-logo {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.inseg-login-logo .inseg-logo {
+  max-width: 280px;
+  margin: 0 auto;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.15));
+}
+
+.inseg-login-tagline {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 0.95rem;
+  margin-top: 0.5rem;
+  letter-spacing: 0.04em;
+}
+
+.inseg-login-footer {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.login-box-msg {
+  font-size: 0.95rem;
+  color: #555;
+}
+
+.inseg-ghe-list {
+  max-height: calc(100vh - 320px);
+  overflow-y: auto;
+}
+
+.inseg-ghe-item {
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.15s ease;
+}
+
+.inseg-ghe-item:hover {
+  background: #f4f6f9;
+}
+
+.inseg-ghe-item.active {
+  background: #edf8f0;
+  border-left-color: var(--inseg-green);
+}
+
+.inseg-chat-log {
+  max-height: 320px;
+  overflow-y: auto;
+  background: #f8f9fa;
+  border-radius: 0.25rem;
+  padding: 0.75rem;
+}
+
+.inseg-chat-bubble {
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: #fff;
+  border: 1px solid #dee2e6;
+}
+
+.inseg-chat-bubble.user {
+  border-left: 3px solid var(--inseg-green);
+}
+
+.inseg-chat-bubble.assistant {
+  border-left: 3px solid var(--inseg-navy);
+}
+
+.inseg-drop-zone {
+  border: 2px dashed #ced4da;
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.inseg-drop-zone:hover {
+  border-color: var(--inseg-green);
+  background: #f4fbf6;
+}
+
+.inseg-drop-zone input[type="file"] {
+  display: none;
+}
+
+.inseg-field-scroll {
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+}
+
+.content-wrapper {
+  background: #f4f6f9;
+}
+
+.main-footer {
+  background: #fff;
+}
+
+@media (max-width: 991.98px) {
+  .inseg-ghe-list,
+  .inseg-field-scroll {
+    max-height: none;
+  }
+}
