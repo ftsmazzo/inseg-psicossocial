@@ -430,10 +430,17 @@ export default function JobWorkspace() {
 
   const canUpload = job.status === "draft" || job.status === "failed";
 
+  const incompleteReview =
+    job.status === "review" &&
+    job.progress?.total > 0 &&
+    job.lines_count > 0 &&
+    job.lines_count < job.progress.total;
+
   const canReprocess =
     job.status === "review" ||
     job.status === "ready" ||
     job.status === "failed" ||
+    incompleteReview ||
     (job.status === "processing" && job.processing_stale);
 
   const showProgress = job.status === "processing" || (busy && progress);
@@ -518,7 +525,9 @@ export default function JobWorkspace() {
 
                   {job.status === "processing" && job.processing_stale
                     ? "Continuar processamento"
-                    : "Reprocessar"}
+                    : incompleteReview
+                      ? "Continuar processamento"
+                      : "Reprocessar"}
 
                 </button>
 

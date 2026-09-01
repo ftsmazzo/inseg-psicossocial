@@ -209,7 +209,7 @@ def process_job_background(job_id: int) -> None:
             saved = db2.query(JobLine).filter(JobLine.job_id == job_id).count()
             job.status = JobStatus.review if saved else JobStatus.failed
             job.error_message = (
-                f"Processamento interrompido — {saved} GHE(s) salvos. "
+                f"Processamento interrompido | Parcial salvo: {saved} GHE(s). "
                 "Use Continuar processamento para retomar."
             )
             notes = list(job.notes_json or [])
@@ -217,11 +217,13 @@ def process_job_background(job_id: int) -> None:
             job.notes_json = notes
             db2.add(job)
             db2.commit()
+            prog = read_progress(job_id) or {}
+            total = max(int(prog.get("total") or 0), saved, 1)
             write_progress(
                 job_id,
                 done=saved,
-                total=max(saved, 1),
-                message=f"Interrompido — {saved} GHE(s) salvos",
+                total=max(total, 1),
+                message=f"Interrompido — {saved}/{total} GHE(s) salvos",
                 phase="stopped",
             )
         except Exception as exc:  # noqa: BLE001
@@ -254,14 +256,25 @@ def process_job(db: Session, job: Job, *, force_full: bool = False) -> Job:
 
     existing_lines = db.query(JobLine).filter(JobLine.job_id == job.id).all()
     partial_msg = (job.error_message or "")
+    prog = read_progress(job.id)
+    prog_total = int(prog.get("total") or 0) if prog else 0
+    partial_incomplete = (
+        job.status == JobStatus.review
+        and len(existing_lines) > 0
+        and prog_total > len(existing_lines)
+    )
     resume = (
         not force_full
         and len(existing_lines) > 0
         and (
             job.status in {JobStatus.processing, JobStatus.failed}
+            or partial_incomplete
             or (
                 job.status == JobStatus.review
-                and "Parcial salvo" in partial_msg
+                and (
+                    "Parcial salvo" in partial_msg
+                    or "Processamento interrompido" in partial_msg
+                )
             )
         )
     )
