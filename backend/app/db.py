@@ -68,6 +68,12 @@ def ensure_schema_patches() -> None:
                     "prioridade_acao VARCHAR(8)"
                 )
             )
+            conn.execute(
+                text(
+                    "ALTER TABLE job_lines "
+                    "ALTER COLUMN hazard_id TYPE VARCHAR(255)"
+                )
+            )
 
 
 def get_db():

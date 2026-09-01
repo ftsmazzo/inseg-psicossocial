@@ -87,7 +87,7 @@ class JobLine(Base):
     controles: Mapped[str] = mapped_column(Text)
     evidencias_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(64))
-    hazard_id: Mapped[str] = mapped_column(String(64))
+    hazard_id: Mapped[str] = mapped_column(String(255))
     match_score: Mapped[float] = mapped_column(Float, default=0)
     matched_from: Mapped[str | None] = mapped_column(String(255), nullable=True)
     n_respondentes: Mapped[int] = mapped_column(Integer, default=0)
