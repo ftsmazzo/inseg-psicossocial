@@ -31,8 +31,8 @@ services:
       OPENROUTER_CHAT_MODEL: ${OPENROUTER_CHAT_MODEL:-google/gemini-2.5-flash}
     volumes:
       - appdata:/data
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
       interval: 15s
