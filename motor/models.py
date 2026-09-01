@@ -138,6 +138,8 @@ class ProposedLine:
     aprho_table_index: int
     psico_row_index: int | None
     plano_acao: str = ""
+    motor_rationale: str = ""
+    prioridade_acao: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)

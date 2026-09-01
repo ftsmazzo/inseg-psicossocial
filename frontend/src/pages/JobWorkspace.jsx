@@ -984,6 +984,54 @@ export default function JobWorkspace() {
 
 
 
+                      <div className="form-row">
+
+                        <div className="form-group col-md-4">
+
+                          <label>Prioridade de ação</label>
+
+                          <input
+
+                            className="form-control form-control-sm"
+
+                            value={
+
+                              selected.prioridade_acao
+
+                                ? `P${selected.prioridade_acao}`
+
+                                : "—"
+
+                            }
+
+                            readOnly
+
+                            title="Prioridade de intervenção (≠ potencial da matriz)"
+
+                          />
+
+                        </div>
+
+                        {selected.motor_rationale && (
+
+                          <div className="form-group col-md-8">
+
+                            <label>Análise do motor</label>
+
+                            <p className="small text-muted mb-0 border rounded p-2 bg-light">
+
+                              {selected.motor_rationale}
+
+                            </p>
+
+                          </div>
+
+                        )}
+
+                      </div>
+
+
+
                       <Field
 
                         label="Controles"

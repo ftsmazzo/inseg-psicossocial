@@ -10,6 +10,11 @@ from motor.hazards import (
     rank_hazards_for_ghe,
     soft_hazards_from_dimensions,
 )
+from motor.dossier_insights import (
+    compute_missing_information,
+    compute_pattern_alerts,
+    compute_protective_signals,
+)
 from motor.match_ghe import aggregate_n, slices_for_ghe
 from motor.models import CampaignData, PgrModel, QuestionScore
 from motor.textutil import normalize
@@ -39,6 +44,9 @@ class GheDossier:
     campanha_meta: dict[str, Any]
     # forte | moderada | fraca | insuficiente — Guia MTE: não inventar sem evidência
     evidencia_nivel: str = "moderada"
+    pattern_alerts: list[dict[str, Any]] = field(default_factory=list)
+    protective_signals: list[dict[str, Any]] = field(default_factory=list)
+    missing_information: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -242,6 +250,18 @@ def build_dossiers(campaign: CampaignData, pgr: PgrModel) -> JobDossiers:
         if evid_nivel in {"fraca", "insuficiente"}:
             match_info = f"{match_info}|evidencia_{evid_nivel}"
 
+        pattern_alerts = compute_pattern_alerts(slice_dims)
+        protective_signals = compute_protective_signals(slice_dims)
+        missing_information = compute_missing_information(
+            n_respondentes=n,
+            anonimato_ok=n >= MIN_ANONIMATO,
+            atividade_resumo=_atividade_resumo(ghe.atividade),
+            has_slice=bool(slice_list),
+            hazards_candidatos=hazards_payload,
+            evidencia_nivel=evid_nivel,
+            soft_only=soft_only or not selected,
+        )
+
         out.append(
             GheDossier(
                 ghe_numero=ghe.numero,
@@ -278,6 +298,9 @@ def build_dossiers(campaign: CampaignData, pgr: PgrModel) -> JobDossiers:
                 match_score=hits[0][1] if hits else 0.0,
                 campanha_meta=meta,
                 evidencia_nivel=evid_nivel,
+                pattern_alerts=pattern_alerts,
+                protective_signals=protective_signals,
+                missing_information=missing_information,
             )
         )
 
@@ -295,6 +318,8 @@ def list_ghe_summaries(job: JobDossiers) -> list[dict[str, Any]]:
             "evidencia_nivel": d.evidencia_nivel,
             "hazards": [h["id"] for h in d.hazards_candidatos],
             "codigos_mte": [h.get("codigo_mte") for h in d.hazards_candidatos if h.get("codigo_mte")],
+            "pattern_alerts": [a.get("type") for a in d.pattern_alerts],
+            "missing": d.missing_information[:3],
         }
         for d in job.dossiers
     ]

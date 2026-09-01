@@ -18,6 +18,7 @@ CORPUS_FILES = (
     "skill_guia_mte_nr01.md",
     "skill_inseg_aprh.md",
     "skill_perigos_controles.md",
+    "skill_guardrails_nt4655.md",
     "corpus_mte_frprt.md",
     "corpus_sesi_frprt.md",
     "gold_examples.md",
@@ -113,6 +114,7 @@ def load_system_skills() -> str:
         "skill_guia_mte_nr01.md",
         "skill_inseg_aprh.md",
         "skill_perigos_controles.md",
+        "skill_guardrails_nt4655.md",
     ):
         p = base / name
         if p.exists():

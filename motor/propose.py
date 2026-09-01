@@ -22,6 +22,7 @@ from motor.models import (
 )
 from motor.orchestrator import draft_from_dossier, orchestrate_ghe, orchestrator_model
 from motor.parse_pgr import lookup_potencial
+from motor.dossier_insights import build_motor_rationale, compute_prioridade_acao
 
 
 MIN_ANONIMATO = 5
@@ -142,6 +143,14 @@ def propose(
         for h in d.hazards_candidatos[:3]:
             cod = h.get("codigo_mte") or ""
             evidencias.append(f"Fator: {h.get('id')} {f'({cod})' if cod else ''}".strip())
+        for alert in getattr(d, "pattern_alerts", [])[:2]:
+            evidencias.append(f"Alerta: {alert.get('type')} — {alert.get('message', '')[:120]}")
+        for sig in getattr(d, "protective_signals", [])[:1]:
+            evidencias.append(f"Proteção: {sig.get('type')} — {sig.get('message', '')[:100]}")
+        if getattr(d, "missing_information", None):
+            evidencias.append(
+                "Lacunas: " + "; ".join(d.missing_information[:4])
+            )
         if evid_nivel in {"fraca", "insuficiente"} or not d.hazards_candidatos:
             status = LineStatus.PRELIMINAR
             evidencias.append(
@@ -202,6 +211,29 @@ def propose(
             psico_idx = None
             notes.append(f"GHE {ghe.numero}: sem linha psicossocial — será criada (insert).")
 
+        prioridade = compute_prioridade_acao(
+            severity=severity,
+            evidencia_nivel=evid_nivel,
+            pattern_alerts=getattr(d, "pattern_alerts", []),
+            anonimato_ok=d.anonimato_ok,
+        )
+        rationale = build_motor_rationale(
+            ghe_numero=ghe.numero,
+            evidencia_nivel=evid_nivel,
+            hazards_candidatos=d.hazards_candidatos,
+            pattern_alerts=getattr(d, "pattern_alerts", []),
+            protective_signals=getattr(d, "protective_signals", []),
+            missing_information=getattr(d, "missing_information", []),
+            severity=severity,
+            ge=ge,
+            ges=ges,
+            potencial=potencial,
+            prioridade_acao=prioridade,
+            match_info=d.match_info,
+            n_respondentes=n,
+        )
+        evidencias.append(f"Prioridade de ação: {prioridade} (separada do potencial {potencial})")
+
         line = ProposedLine(
             ghe_numero=ghe.numero,
             ghe_nome=ghe.nome,
@@ -227,6 +259,8 @@ def propose(
             aprho_table_index=ghe.aprho_table_index,
             psico_row_index=psico_idx,
             plano_acao=_plano_acao_curto(agente_final, controles_final),
+            motor_rationale=rationale,
+            prioridade_acao=prioridade,
         )
         lines.append(line)
         if on_line is not None:

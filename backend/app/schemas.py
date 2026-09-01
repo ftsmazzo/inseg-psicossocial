@@ -70,6 +70,8 @@ class JobLineOut(BaseModel):
     n_respondentes: int
     action: str
     plano_acao: str | None
+    motor_rationale: str | None = None
+    prioridade_acao: str | None = None
     accepted: bool
     discarded: bool
     needs_review: bool = False

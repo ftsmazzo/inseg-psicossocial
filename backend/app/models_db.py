@@ -95,6 +95,8 @@ class JobLine(Base):
     aprho_table_index: Mapped[int] = mapped_column(Integer)
     psico_row_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     plano_acao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    motor_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prioridade_acao: Mapped[str | None] = mapped_column(String(8), nullable=True)
     accepted: Mapped[bool] = mapped_column(Boolean, default=False)
     discarded: Mapped[bool] = mapped_column(Boolean, default=False)
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False)

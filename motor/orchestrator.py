@@ -43,6 +43,10 @@ CONTROLES: medidas DIRETIVAS na organização do trabalho (Revisar metas, Redist
 Dimensionar, Definir papéis, Pausas…). PROIBIDO como única resposta: palestra de resiliência,
 meditação, "orientar a controlar o estresse", "Manter adequada…", "garantir comunicação…".
 
+Se pattern_alerts no dossiê: amarre causa/controles ao padrão (ex.: demanda+controle+suporte).
+Se missing_information: seja cauteloso; não invente fonte/circunstância ausente.
+Se protective_signals: contextualize sem negar exposição existente.
+
 Tom telegráfico inventário. Sem parágrafo.
 
 JSON único:
@@ -187,6 +191,9 @@ def _compact_dossier(d: GheDossier) -> dict[str, Any]:
         "atividade": d.atividade_resumo[:280],
         "n_respondentes": d.n_respondentes,
         "evidencia_nivel": getattr(d, "evidencia_nivel", "moderada"),
+        "pattern_alerts": getattr(d, "pattern_alerts", [])[:3],
+        "protective_signals": getattr(d, "protective_signals", [])[:2],
+        "missing_information": getattr(d, "missing_information", [])[:5],
         "recorte_campanha": d.ssos_slices[:3],
         "evidencias_campanha": {
             "hazards": [
@@ -211,7 +218,9 @@ def _compact_dossier(d: GheDossier) -> dict[str, Any]:
         "pgr_tem_linha_psico": bool(d.linha_psico_atual),
         "lembrete_mte": (
             "Score CST é evidência, não grau PGR. "
-            "Não inventar assédio/violência sem pergunta explícita."
+            "Não inventar assédio/violência sem pergunta explícita. "
+            "Risco coletivo GHE ≠ aptidão individual. "
+            "Nunca sugerir encaminhamento obrigatório a psicólogo ou ASO."
         ),
     }
 
@@ -418,5 +427,9 @@ def _system_prompt_chat() -> str:
         "   → Mantenha Agente/trajetória/exposição salvo se o usuário não pediu mudança.\n\n"
         "Se houver CONTEXTO DA TELA abaixo, use esses campos — nunca peça ao usuário repetir.\n"
         "Exposição: Habitual e Intermitente. Sem genéricos. Sem inventar números.\n\n"
+        "LIMITES (Nota Técnica 4655/2024): este módulo é PGR coletivo por GHE. "
+        "Nunca concluir aptidão/inaptidão, emitir ASO, exigir psicólogo ou transformar "
+        "risco coletivo em diagnóstico individual. Se perguntarem sobre exame/ASO, "
+        "explique que isso é competência médica fora deste fluxo.\n\n"
         f"{skills}"
     )

@@ -42,11 +42,30 @@ def ensure_schema_patches() -> None:
                         "NOT NULL DEFAULT 0"
                     )
                 )
+            if "motor_rationale" not in cols:
+                conn.execute(
+                    text("ALTER TABLE job_lines ADD COLUMN motor_rationale TEXT")
+                )
+            if "prioridade_acao" not in cols:
+                conn.execute(
+                    text("ALTER TABLE job_lines ADD COLUMN prioridade_acao VARCHAR(8)")
+                )
         elif dialect in {"postgresql", "postgres"}:
             conn.execute(
                 text(
                     "ALTER TABLE job_lines ADD COLUMN IF NOT EXISTS "
                     "needs_review BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE job_lines ADD COLUMN IF NOT EXISTS motor_rationale TEXT"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE job_lines ADD COLUMN IF NOT EXISTS "
+                    "prioridade_acao VARCHAR(8)"
                 )
             )
 

@@ -132,9 +132,12 @@ def _upsert_job_line(db: Session, job_id: int, ln: dict) -> JobLine:
         aprho_table_index=ln["aprho_table_index"],
         psico_row_index=ln.get("psico_row_index"),
         plano_acao=ln.get("plano_acao"),
+        motor_rationale=ln.get("motor_rationale"),
+        prioridade_acao=ln.get("prioridade_acao"),
         accepted=ln.get("status") == "Definitivo",
         discarded=False,
-        needs_review=False,
+        needs_review=ln.get("status") in ("Preliminar", "Proposta")
+        or ln.get("prioridade_acao") == "1",
     )
     if row is None:
         row = JobLine(job_id=job_id, ghe_numero=ln["ghe_numero"], **fields)
@@ -519,6 +522,8 @@ def generate_docx(db: Session, job: Job) -> Path:
                 aprho_table_index=ln.aprho_table_index,
                 psico_row_index=ln.psico_row_index,
                 plano_acao=ln.plano_acao or "",
+                motor_rationale=ln.motor_rationale or "",
+                prioridade_acao=ln.prioridade_acao or "",
             )
         )
 

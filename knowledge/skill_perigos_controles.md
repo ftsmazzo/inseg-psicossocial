@@ -101,3 +101,40 @@ Palestra de resiliência; meditação; “orientar a controlar o estresse”; ps
 - Motorista: rotas, carga, jornadas externas
 - Administrativo: prazos documentais, demandas simultâneas
 - Remoto: isolamento, disponibilidade, check-in
+
+## Biblioteca de medidas (referência prática — organização do trabalho primeiro)
+
+### Excesso de demandas / pressão temporal
+- Revisar metas e prazos; redistribuir carga entre turnos/equipes
+- Adequar efetivo ao volume; rever prioridades com a liderança
+- Garantir pausas e janelas de recuperação em picos
+
+### Baixa autonomia / controle
+- Revisar processo decisório no posto; ampliar autonomia compatível
+- Envolver equipe na definição de método e sequência de tarefas
+- Documentar prioridades e papéis por função
+
+### Falta de clareza de papel
+- Revisar descrição de função; matriz RACI simplificada
+- Alinhar expectativas entre áreas; reduzir sobreposição de tarefas
+
+### Suporte / reconhecimento insuficiente
+- Rituais de alinhamento liderança-equipe com registro
+- Critérios transparentes de feedback e progressão
+- Canais formais de suporte em situações difíceis
+
+### Conflitos / más relações
+- Mediação formal; regras de convivência; escuta da liderança
+- Treinamento gerencial focado em gestão de conflitos (não resiliência isolada)
+
+### Jornada / esforço elevado
+- Controle de horas extras; dimensionamento; pausas obrigatórias
+- Revisão de distribuição de responsabilidades em picos
+
+### Mudança organizacional
+- Plano de comunicação; participação dos afetados; acompanhamento pós-mudança
+
+## Prioridade de ação ≠ potencial do PGR
+
+Facilidade de solução **não reduz** o nível de risco na matriz.
+Risco alto + solução simples → risco continua alto; prioridade de intervenção pode ser imediata.

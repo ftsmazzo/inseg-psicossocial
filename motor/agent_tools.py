@@ -152,7 +152,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 ]
 
 
-def validate_line_fields(payload: dict[str, Any]) -> dict[str, Any]:
+def validate_line_fields(
+    payload: dict[str, Any],
+    *,
+    dossier_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     agente = (payload.get("agente") or "").strip()
@@ -180,6 +184,17 @@ def validate_line_fields(payload: dict[str, Any]) -> dict[str, Any]:
         warnings.append("trajetoria curta")
     if len(danos) < 8:
         warnings.append("danos curtos")
+
+    if dossier_context:
+        missing = dossier_context.get("missing_information") or []
+        if missing:
+            warnings.append(
+                "lacunas no dossiê: " + "; ".join(str(m) for m in missing[:4])
+            )
+        for alert in dossier_context.get("pattern_alerts") or []:
+            msg = alert.get("message") if isinstance(alert, dict) else str(alert)
+            if msg:
+                warnings.append(f"alerta: {msg[:180]}")
 
     return {
         "ok": len(errors) == 0,
@@ -304,7 +319,11 @@ class AgentJobContext:
             "ghe": {"numero": d.ghe_nome, "nome": d.ghe_nome, "setor": d.setor},
             "n": d.n_respondentes,
             "anonimato_ok": d.anonimato_ok,
+            "evidencia_nivel": d.evidencia_nivel,
             "hazards": d.hazards_candidatos,
+            "pattern_alerts": d.pattern_alerts,
+            "protective_signals": d.protective_signals,
+            "missing_information": d.missing_information,
             "perguntas_criticas": d.perguntas_criticas[:5],
             "proposta": prop,
             "pgr_atual": d.linha_psico_atual,
