@@ -128,7 +128,7 @@ export default function Jobs() {
     setError("");
     setDownloadingId(job.id);
     try {
-      await downloadJob(job.id, `PGR-${job.id}-psicossocial.docx`);
+      await downloadJob(job.id, `PGR-${job.id}-original.docx`);
     } catch (err) {
       setError(err.message);
     } finally {

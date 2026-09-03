@@ -38,12 +38,26 @@ export async function api(path, options = {}) {
   return res;
 }
 
-export async function downloadJob(jobId, filename = `PGR-${jobId}-psicossocial.docx`) {
+export async function downloadJob(
+  jobId,
+  filename = `PGR-${jobId}-original.docx`,
+  { variant = "original" } = {},
+) {
   const token = getToken();
-  const res = await fetch(`/api/jobs/${jobId}/download`, {
+  const path =
+    variant === "full"
+      ? `/api/jobs/${jobId}/download`
+      : `/api/jobs/${jobId}/download-original`;
+  const res = await fetch(path, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
+    // Fallback: job gerado pela rota antiga ainda aponta para /download
+    if (variant !== "full" && res.status === 404) {
+      return downloadJob(jobId, filename.replace("-original", "-psicossocial"), {
+        variant: "full",
+      });
+    }
     let detail = "Falha no download";
     try {
       const data = await res.json();

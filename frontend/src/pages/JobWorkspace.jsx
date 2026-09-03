@@ -298,11 +298,12 @@ export default function JobWorkspace() {
 
     try {
 
-      await api(`/api/jobs/${id}/generate`, { method: "POST" });
+      // Versão estável: só APRHO (sem narrativas/cronograma que desconfiguram o layout)
+      await api(`/api/jobs/${id}/generate-original`, { method: "POST" });
 
       await load();
 
-      setMsg("PGR gerado. Faça o download.");
+      setMsg("PGR gerado (só APRHO). Faça o download.");
 
     } catch (e) {
 
@@ -401,7 +402,7 @@ export default function JobWorkspace() {
 
 
   function download() {
-    downloadJob(id, `PGR-${id}-psicossocial.docx`).catch((e) => setErr(e.message));
+    downloadJob(id, `PGR-${id}-original.docx`).catch((e) => setErr(e.message));
   }
 
 
@@ -561,7 +562,7 @@ export default function JobWorkspace() {
 
                 <i className="fas fa-file-word mr-1" />
 
-                Gerar PGR
+                Gerar PGR (APRHO)
 
               </button>
 

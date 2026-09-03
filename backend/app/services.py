@@ -649,5 +649,5 @@ def generate_docx_original(db: Session, job: Job) -> Path:
         include_narratives=False,
         include_cronogram=False,
         output_suffix="original",
-        update_job_output=False,
+        update_job_output=True,
     )
