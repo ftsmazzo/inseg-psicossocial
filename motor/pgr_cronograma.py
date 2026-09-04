@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import logging
 import re
 import unicodedata
@@ -11,7 +10,13 @@ from docx import Document
 from docx.table import Table, _Row
 
 from motor.models import ProposedLine
-from motor.pgr_docx_utils import set_cell_fill, set_cell_text, unique_cells
+from motor.pgr_docx_utils import (
+    clone_row,
+    force_row_page_break,
+    set_cell_fill,
+    set_cell_text,
+    unique_cells,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +45,6 @@ def _norm(text: str) -> str:
     t = unicodedata.normalize("NFKC", text or "")
     t = t.replace("\xa0", " ")
     return re.sub(r"\s+", " ", t).strip().lower()
-
-
-def _clone_row(table: Table, row_index: int) -> _Row:
-    row = table.rows[row_index]
-    new_tr = copy.deepcopy(row._tr)
-    row._tr.addnext(new_tr)
-    return table.rows[row_index + 1]
 
 
 def _needs_cronograma(potencial: str) -> bool:
@@ -159,8 +157,10 @@ def apply_psicossocial_cronogram(doc: Document, lines: list[ProposedLine]) -> di
     seq = _next_sequence(table)
     added = 0
     for _prioridade, o_que, por_que, como in _GENERIC_ACTIONS:
-        new_row = _clone_row(table, anchor)
+        new_row = clone_row(table, anchor)
         anchor += 1
+        if added == 0:
+            force_row_page_break(new_row)
         _write_cronogram_row(
             new_row,
             seq=seq,

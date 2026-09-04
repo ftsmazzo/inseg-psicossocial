@@ -1,30 +1,22 @@
 from __future__ import annotations
 
-import copy
 import logging
 import re
 import unicodedata
 from pathlib import Path
 
 from docx import Document
-from docx.table import Table, _Row
+from docx.table import Table
 
 from motor.llm import is_robotic_danos
 from motor.models import ProposedLine
 from motor.pgr_cronograma import apply_psicossocial_cronogram
-from motor.pgr_docx_utils import set_cell_text, style_psico_aprho_row
+from motor.pgr_docx_utils import clone_row, set_cell_text, style_psico_aprho_row
 from motor.pgr_narrative import apply_psicossocial_narratives
 
 logger = logging.getLogger(__name__)
 
 _SAFE_DANOS_FALLBACK = "Agravos Ocupacionais SST a Definir — Revisar Manualmente"
-
-
-def _clone_row(table: Table, row_index: int) -> _Row:
-    row = table.rows[row_index]
-    new_tr = copy.deepcopy(row._tr)
-    row._tr.addnext(new_tr)
-    return table.rows[row_index + 1]
 
 
 def apply_lines_to_pgr(
@@ -74,7 +66,7 @@ def apply_lines_to_pgr(
                 cat = _row_category(table.rows[anchor])
                 if _is_acidente_or_mecanico(cat):
                     anchor = _find_insert_anchor(table)
-            new_row = _clone_row(table, anchor)
+            new_row = clone_row(table, anchor)
             _write_row(new_row, ln)
             applied += 1
 

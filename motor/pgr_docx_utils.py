@@ -3,17 +3,67 @@
 from __future__ import annotations
 
 import copy
+import random
 import re
 import unicodedata
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.table import Table, _Row
 from docx.text.paragraph import Paragraph
+from lxml import etree
 
 
 def norm_text(text: str) -> str:
     t = unicodedata.normalize("NFKC", text or "")
     return re.sub(r"\s+", " ", t.replace("\xa0", " ")).strip().lower()
+
+
+def regenerate_cloned_ids(root_el) -> None:
+    """Gera novos IDs para elementos clonados (docPr, anchorId/editId, paraId/textId, bookmarks).
+
+    O Word exige unicidade desses IDs no documento inteiro — em especial docPr/anchorId de
+    imagens flutuantes (ex.: logo/watermark clonado junto com uma linha de tabela). Deixar
+    IDs duplicados confunde o Word ao reposicionar objetos flutuantes na repaginação e pode
+    deslocar texto ou gerar páginas com espaços em branco bem longe do ponto da inserção.
+    """
+    bookmark_map: dict[str, str] = {}
+    for el in root_el.iter():
+        local = etree.QName(el).localname
+        if local == "docPr":
+            el.set("id", str(random.randint(100_000, 2_147_000_000)))
+        elif local in ("bookmarkStart", "bookmarkEnd"):
+            wid = el.get(qn("w:id"))
+            if wid is not None:
+                bookmark_map.setdefault(wid, str(random.randint(100_000, 999_999_999)))
+                el.set(qn("w:id"), bookmark_map[wid])
+        for key in list(el.attrib):
+            local_attr = key.split("}")[-1]
+            if local_attr in ("anchorId", "editId", "paraId", "textId"):
+                el.set(key, format(random.getrandbits(32), "08X"))
+
+
+def clone_row(table: Table, row_index: int) -> _Row:
+    """Clona uma linha da tabela com IDs novos (evita docPr/anchorId duplicado)."""
+    row = table.rows[row_index]
+    new_tr = copy.deepcopy(row._tr)
+    regenerate_cloned_ids(new_tr)
+    row._tr.addnext(new_tr)
+    return table.rows[row_index + 1]
+
+
+def force_row_page_break(row) -> None:
+    """Força a linha a abrir página nova, sem quebrar no meio.
+
+    Formas flutuantes (setas/logo) ancoradas nas linhas originais de uma tabela
+    recalculam mal a posição quando a tabela passa a atravessar uma quebra de página
+    (ex.: ao inserir linhas novas no fim). Abrir a linha nova numa página limpa
+    preserva a paginação — e as âncoras — do conteúdo pré-existente.
+    """
+    tr_pr = row._tr.get_or_add_trPr()
+    tr_pr.append(OxmlElement("w:cantSplit"))
+    if row.cells and row.cells[0].paragraphs:
+        row.cells[0].paragraphs[0].paragraph_format.page_break_before = True
 
 
 def set_cell_fill(cell, fill_hex: str | None) -> None:
@@ -192,6 +242,7 @@ def insert_paragraph_after(
     """
     spacing_from = after if spacing_from is None else spacing_from
     new_el = copy.deepcopy(template._p)
+    regenerate_cloned_ids(new_el)
     _sanitize_paragraph_properties(
         new_el,
         keep_numpr=keep_numpr,
